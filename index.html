@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+<title>Mes Courses</title>
+<meta name="description" content="Gérez vos courses et votre historique d'achats, simplement." />
+
+<!-- PWA -->
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#1A7A4F" />
+
+<!-- iOS specifics -->
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Courses" />
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png" />
+<link rel="icon" type="image/png" sizes="16x16" href="icons/favicon-16.png" />
+
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ===================== EN-TÊTE ===================== -->
+  <header id="app-header" class="app-header">
+    <h1 id="header-title">Accueil</h1>
+    <button id="header-action" class="header-action-btn" hidden></button>
+  </header>
+
+  <!-- ===================== CONTENU PRINCIPAL ===================== -->
+  <main id="screen" class="screen"></main>
+
+  <!-- Bouton flottant d'ajout -->
+  <button id="fab-add" class="fab-add" aria-label="Ajouter un article">
+    <span>+</span>
+  </button>
+
+  <!-- ===================== NAVIGATION BASSE ===================== -->
+  <nav id="bottom-nav" class="bottom-nav">
+    <button class="nav-btn" data-route="home">
+      <span class="nav-icon">🏠</span><span>Accueil</span>
+    </button>
+    <button class="nav-btn" data-route="list">
+      <span class="nav-icon">🛒</span><span>À acheter</span>
+    </button>
+    <button class="nav-btn" data-route="history">
+      <span class="nav-icon">📚</span><span>Historique</span>
+    </button>
+    <button class="nav-btn" data-route="settings">
+      <span class="nav-icon">⚙️</span><span>Paramètres</span>
+    </button>
+  </nav>
+
+  <!-- ===================== MODE COURSES (plein écran) ===================== -->
+  <div id="shopping-mode" class="fullscreen-overlay" hidden></div>
+
+  <!-- ===================== MODAL AJOUT / ÉDITION ARTICLE ===================== -->
+  <div id="item-modal" class="modal-backdrop" hidden></div>
+
+  <!-- ===================== TOAST ===================== -->
+  <div id="toast" class="toast" hidden></div>
+
+</div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
