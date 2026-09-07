@@ -37,10 +37,12 @@ index.html          Écran unique (SPA) + squelette de l'interface
 styles.css           Système de design (tokens, composants, animations)
 manifest.json        Manifeste PWA (icônes, couleurs, mode plein écran)
 sw.js                Service worker (cache hors-ligne de l'app)
-js/db.js             Couche IndexedDB (articles, catégories, historique, etc.)
+js/db.js             Couche IndexedDB (articles, catégories, supermarchés, historique...)
 js/app.js            Routage entre écrans + rendu Accueil/Liste/Historique/Paramètres
-js/itemModal.js       Formulaire d'ajout / édition d'un article
+js/itemModal.js       Formulaire d'ajout / édition d'un article (liste active ou historique)
 js/shoppingMode.js    Écran plein écran "mode courses"
+js/pdfExport.js       Génération de PDF hors-ligne (liste active ou session d'historique)
+js/vendor/            Bibliothèque pdf-lib, embarquée localement (aucune requête réseau)
 js/confirm.js         Boîte de dialogue de confirmation réutilisable
 js/helpers.js         Fonctions utilitaires (dates, prix, DOM...)
 icons/                Icônes PWA (générées, fond vert émeraude)
@@ -49,14 +51,25 @@ icons/                Icônes PWA (générées, fond vert émeraude)
 ## Ce qui est déjà fonctionnel
 
 - Ajout ultra-rapide d'un article (nom seul) + formulaire complet optionnel
-  (catégorie, quantité, unité, priorité, notes, prix).
+  (catégorie, quantité, unité, priorité, notes, prix), **depuis l'onglet
+  « À acheter » uniquement**.
+- L'onglet **Accueil est un tableau de bord en lecture seule** : résumé,
+  statistiques du mois, aperçu de la liste et des dernières courses — aucun
+  ajout d'article n'y est possible.
 - Suggestions automatiques basées sur les articles déjà utilisés.
 - Catégories par défaut + création de catégories personnalisées.
+- **Supermarchés personnalisés** : à créer dans Paramètres, puis à associer à
+  chaque article. Un filtre par supermarché apparaît automatiquement sur la
+  liste « À acheter » dès qu'au moins un article en a un.
 - Mode courses : cases à cocher, barre de progression, section "Achetés".
 - Fin de courses avec confirmation, sauvegarde automatique dans l'historique
   (date, heure, articles achetés **et** non achetés).
-- Historique consultable, avec détail, prix/totaux si renseignés, et
-  "Racheter cette liste" pour tout remettre dans la liste active.
+- **Historique modifiable** : chaque session peut être supprimée (liste ou
+  détail), et dans le détail il est possible de modifier/supprimer chaque
+  article, d'en ajouter un nouveau, ou de supprimer toute la session.
+- **Export PDF** de la liste active ou d'une session d'historique (bouton
+  « 📄 PDF »), généré entièrement hors-ligne.
+- "Racheter cette liste" pour tout remettre dans la liste active.
 - Articles habituels mémorisés automatiquement, ajout en un clic.
 - Export / import complet des données en JSON (sauvegarde manuelle).
 - Fonctionnement 100 % hors-ligne après le premier chargement (service worker).

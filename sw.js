@@ -4,7 +4,7 @@
 // avec repli réseau puis mise à jour du cache en tâche de fond.
 // ============================================================================
 
-const CACHE_NAME = "mescourses-cache-v1";
+const CACHE_NAME = "mescourses-cache-v2";
 
 const APP_SHELL = [
   "./",
@@ -17,6 +17,8 @@ const APP_SHELL = [
   "./js/itemModal.js",
   "./js/shoppingMode.js",
   "./js/confirm.js",
+  "./js/pdfExport.js",
+  "./js/vendor/pdf-lib.esm.min.js",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
   "./icons/apple-touch-icon.png",
