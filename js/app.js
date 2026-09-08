@@ -40,13 +40,42 @@ function refreshCurrentScreen() {
 }
 
 // ============================================================================
-// Écran : Accueil (tableau de bord + liste immédiatement visible)
+// Écran : Accueil (page stylée avec supermarchés + aliments prédéfinis)
 // ============================================================================
 async function renderHome() {
-  const [items, recurrents] = await Promise.all([db.getAllItems(), db.getRecurrents()]);
+  const [items, recurrents, supermarkets, activeSupermarketId, predefinedFoods] = await Promise.all([
+    db.getAllItems(),
+    db.getRecurrents(),
+    db.getSupermarkets(),
+    db.getActiveSupermarket(),
+    Promise.resolve(db.getPredefinedFoods()),
+  ]);
+  
   const toBuy = items.filter((i) => !i.purchased).sort(sortByPriorityThenCategory);
+  const activeSupermarket = supermarkets.find(sm => sm.id === activeSupermarketId) || supermarkets[0];
 
   screenEl.innerHTML = "";
+
+  // --- En-tête stylé avec sélection de supermarché ---
+  const header = el(`
+    <div style="background: linear-gradient(135deg, #1A7A4F 0%, #0f5a3a 100%); color: white; padding: 24px 16px; margin: -16px -16px 16px -16px; border-radius: 0 0 20px 20px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+        <div>
+          <div style="font-size: 28px; font-weight: 700; margin-bottom: 4px;">Mes Courses</div>
+          <div style="font-size: 13px; opacity: 0.9;">Gérez vos achats simplement</div>
+        </div>
+        <div style="font-size: 48px;">${activeSupermarket ? activeSupermarket.icon : "🛒"}</div>
+      </div>
+      
+      <div style="margin-top: 12px;">
+        <div style="font-size: 12px; opacity: 0.9; margin-bottom: 6px;">Supermarché :</div>
+        <select id="supermarket-select" style="width: 100%; padding: 10px; border: none; border-radius: 8px; font-size: 14px; background: rgba(255,255,255,0.2); color: white; cursor: pointer;">
+          ${supermarkets.map(sm => `<option value="${sm.id}" ${sm.id === activeSupermarketId ? "selected" : ""}>${sm.icon} ${sm.name}</option>`).join("")}
+        </select>
+      </div>
+    </div>
+  `);
+  screenEl.appendChild(header);
 
   // --- Résumé + CTA courses ---
   const summary = el(`
@@ -57,6 +86,22 @@ async function renderHome() {
     </div>
   `);
   screenEl.appendChild(summary);
+
+  // --- Aliments prédéfinis ---
+  screenEl.appendChild(el(`<div class="section-label">Aliments courants</div>`));
+  const predefinedRow = el(`<div class="chip-row"></div>`);
+  predefinedFoods.slice(0, 8).forEach((food) => {
+    const already = toBuy.some((i) => i.name.toLowerCase() === food.name.toLowerCase());
+    const chip = el(`<button type="button" class="chip ${already ? "selected" : ""}">${already ? "✓ " : '<span class="plus">+</span>'}${escapeHtml(food.name)}</button>`);
+    chip.addEventListener("click", async () => {
+      if (already) return;
+      await db.addItem({ name: food.name, category: food.category, unit: food.unit });
+      showToast(`« ${food.name} » ajouté`);
+      renderHome();
+    });
+    predefinedRow.appendChild(chip);
+  });
+  screenEl.appendChild(predefinedRow);
 
   // --- Ajout rapide ---
   screenEl.appendChild(renderQuickAddBar(recurrents));
@@ -96,6 +141,13 @@ async function renderHome() {
   }
 
   screenEl.querySelector('[data-action="start-shopping"]')?.addEventListener("click", startShopping);
+  
+  // --- Gestionnaire de sélection de supermarché ---
+  header.querySelector("#supermarket-select")?.addEventListener("change", async (e) => {
+    await db.setActiveSupermarket(e.target.value);
+    showToast(`Supermarché changé`);
+    renderHome();
+  });
 }
 
 // ============================================================================
@@ -298,16 +350,52 @@ async function renderHistory() {
 
   history.forEach((entry) => {
     const row = el(`
-      <button class="history-entry" style="width:100%;text-align:left;border:none;cursor:pointer;">
-        <span class="emoji">📅</span>
-        <div class="info">
-          <div class="date">${formatDateLong(entry.date)}</div>
-          <div class="meta">${entry.purchasedCount} acheté${entry.purchasedCount > 1 ? "s" : ""} sur ${entry.totalCount}${entry.totalPrice ? ` · ${formatPrice(entry.totalPrice)}` : ""}</div>
+      <div class="item-row" style="padding:12px 16px;align-items:center;gap:12px;">
+        <div style="flex:1;cursor:pointer;" data-action="view-detail">
+          <span class="emoji" style="margin-right:8px;">📅</span>
+          <div style="display:inline-block;vertical-align:top;">
+            <div class="item-name">${formatDateLong(entry.date)}</div>
+            <div class="item-meta">${entry.purchasedCount} acheté${entry.purchasedCount > 1 ? "s" : ""} sur ${entry.totalCount}${entry.totalPrice ? ` · ${formatPrice(entry.totalPrice)}` : ""}</div>
+          </div>
         </div>
-        <span class="chevron">›</span>
-      </button>
+        <div style="display:flex;gap:6px;">
+          <button class="link" data-action="reuse" style="padding:6px 10px;font-size:12px;white-space:nowrap;">↻ Réutiliser</button>
+          <button class="link danger" data-action="delete" style="padding:6px 10px;font-size:12px;">✕</button>
+        </div>
+      </div>
     `);
-    row.addEventListener("click", () => renderHistoryDetail(entry.id));
+    
+    row.querySelector('[data-action="view-detail"]').addEventListener("click", () => renderHistoryDetail(entry.id));
+    
+    row.querySelector('[data-action="reuse"]').addEventListener("click", async (e) => {
+      e.stopPropagation();
+      for (const item of (entry.items || [])) {
+        await db.addItem({
+          name: item.name,
+          category: item.category,
+          quantity: item.quantity,
+          unit: item.unit,
+          priority: item.priority,
+        });
+      }
+      showToast("Articles ajoutés à votre liste");
+      navigate("list");
+    });
+    
+    row.querySelector('[data-action="delete"]').addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const ok = await openConfirm({
+        title: "Supprimer cette entrée ?",
+        message: "Cet enregistrement sera définitivement supprimé.",
+        confirmLabel: "Supprimer",
+        danger: true,
+      });
+      if (ok) {
+        await db.deleteHistoryEntry(entry.id);
+        renderHistory();
+      }
+    });
+    
     screenEl.appendChild(row);
   });
 }
@@ -390,25 +478,77 @@ async function renderHistoryDetail(id) {
 // Écran : Paramètres
 // ============================================================================
 async function renderSettings() {
-  const [categories, recurrents, stockEnabled] = await Promise.all([
+  const [categories, recurrents, stockEnabled, supermarkets] = await Promise.all([
     db.getAllCategories(),
     db.getRecurrents(),
     db.getSetting("stockFeatureEnabled", false),
+    db.getSupermarkets(),
   ]);
 
   screenEl.innerHTML = "";
+
+  // --- Supermarchés ---
+  screenEl.appendChild(el(`<div class="section-label">Mes supermarchés</div>`));
+  const smGroup = el(`<div class="settings-group"></div>`);
+  supermarkets.forEach((sm) => {
+    const row = el(`
+      <div class="settings-row">
+        <div>
+          <div class="label">${sm.icon} ${escapeHtml(sm.name)}</div>
+          ${sm.isDefault ? `<div class="sub">Défaut</div>` : ""}
+        </div>
+        ${sm.isDefault ? "" : `<button class="link danger" data-del-sm="${sm.id}">Supprimer</button>`}
+      </div>
+    `);
+    smGroup.appendChild(row);
+  });
+  
+  const addSmRow = el(`
+    <div class="settings-row">
+      <input id="new-sm-input" type="text" placeholder="Nouveau supermarché..." style="border:none;flex:1;font-size:15px;outline:none;" />
+      <button class="link" id="add-sm-btn">Ajouter</button>
+    </div>
+  `);
+  smGroup.appendChild(addSmRow);
+  screenEl.appendChild(smGroup);
+
+  smGroup.querySelectorAll("[data-del-sm]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const ok = await openConfirm({ title: "Supprimer ce supermarché ?", confirmLabel: "Supprimer", danger: true });
+      if (ok) { await db.deleteSupermarket(btn.dataset.delSm); renderSettings(); }
+    });
+  });
+  addSmRow.querySelector("#add-sm-btn").addEventListener("click", async () => {
+    const input = addSmRow.querySelector("#new-sm-input");
+    if (!input.value.trim()) return;
+    await db.addSupermarket(input.value.trim());
+    renderSettings();
+  });
 
   // --- Catégories ---
   screenEl.appendChild(el(`<div class="section-label">Catégories</div>`));
   const catGroup = el(`<div class="settings-group"></div>`);
   categories.forEach((cat) => {
     const row = el(`
-      <div class="settings-row">
-        <span class="label">${escapeHtml(cat.name)}</span>
+      <div class="settings-row" data-cat-id="${cat.id}">
+        <div style="flex:1;">
+          <div class="label" data-editable="${!cat.isDefault}" style="${!cat.isDefault ? "cursor:pointer;" : ""}">${escapeHtml(cat.name)}</div>
+          ${!cat.isDefault ? `<div class="sub" style="font-size:11px;color:var(--ink-soft);">Cliquez pour renommer</div>` : ""}
+        </div>
         ${cat.isDefault ? "" : `<button class="link danger" data-del-cat="${cat.id}">Supprimer</button>`}
       </div>
     `);
     catGroup.appendChild(row);
+    
+    if (!cat.isDefault) {
+      row.querySelector('[data-editable]').addEventListener("click", async () => {
+        const newName = prompt("Renommer la catégorie :", cat.name);
+        if (newName && newName.trim() !== cat.name) {
+          await db.updateCategory(cat.id, newName.trim());
+          renderSettings();
+        }
+      });
+    }
   });
   const addCatRow = el(`
     <div class="settings-row">

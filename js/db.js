@@ -50,6 +50,10 @@ function openDB() {
       if (!db.objectStoreNames.contains("settings")) {
         db.createObjectStore("settings", { keyPath: "key" });
       }
+
+      if (!db.objectStoreNames.contains("supermarkets")) {
+        db.createObjectStore("supermarkets", { keyPath: "id" });
+      }
     };
 
     req.onsuccess = () => resolve(req.result);
@@ -91,6 +95,43 @@ const DEFAULT_CATEGORIES = [
 
 const DEFAULT_UNITS = ["pièce", "kg", "g", "litre", "ml", "paquet", "boîte"];
 
+const DEFAULT_SUPERMARKETS = [
+  { name: "Carrefour", icon: "🏬", latitude: null, longitude: null },
+  { name: "Marjane", icon: "🛍️", latitude: null, longitude: null },
+  { name: "Acima", icon: "🏪", latitude: null, longitude: null },
+  { name: "Monoprix", icon: "🏢", latitude: null, longitude: null },
+  { name: "Local", icon: "🏘️", latitude: null, longitude: null },
+];
+
+const PREDEFINED_FOODS = [
+  { name: "Lait", category: "Alimentation", unit: "litre" },
+  { name: "Café", category: "Alimentation", unit: "paquet" },
+  { name: "Œufs", category: "Alimentation", unit: "pièce" },
+  { name: "Pain", category: "Alimentation", unit: "pièce" },
+  { name: "Fromage", category: "Alimentation", unit: "kg" },
+  { name: "Beurre", category: "Alimentation", unit: "kg" },
+  { name: "Yaourt", category: "Alimentation", unit: "pièce" },
+  { name: "Crème fraîche", category: "Alimentation", unit: "litre" },
+  { name: "Jambon", category: "Alimentation", unit: "kg" },
+  { name: "Poulet", category: "Alimentation", unit: "kg" },
+  { name: "Poisson", category: "Alimentation", unit: "kg" },
+  { name: "Riz", category: "Alimentation", unit: "kg" },
+  { name: "Pâtes", category: "Alimentation", unit: "kg" },
+  { name: "Tomates", category: "Alimentation", unit: "kg" },
+  { name: "Oignons", category: "Alimentation", unit: "kg" },
+  { name: "Ail", category: "Alimentation", unit: "pièce" },
+  { name: "Sucre", category: "Alimentation", unit: "kg" },
+  { name: "Sel", category: "Alimentation", unit: "kg" },
+  { name: "Huile", category: "Alimentation", unit: "litre" },
+  { name: "Eau", category: "Boissons", unit: "litre" },
+  { name: "Jus d'orange", category: "Boissons", unit: "litre" },
+  { name: "Vin", category: "Boissons", unit: "litre" },
+  { name: "Savon", category: "Hygiène", unit: "pièce" },
+  { name: "Shampoing", category: "Hygiène", unit: "litre" },
+  { name: "Papier toilette", category: "Maison", unit: "paquet" },
+  { name: "Détergent", category: "Entretien", unit: "litre" },
+];
+
 // ----------------------------------------------------------------------------
 // Initialisation (première ouverture) : peuple les catégories par défaut
 // ----------------------------------------------------------------------------
@@ -115,6 +156,22 @@ export async function ensureSeeded() {
   if (!stockSetting) {
     const ws = await tx("settings", "readwrite");
     ws.put({ key: "stockFeatureEnabled", value: false });
+  }
+
+  // Initialiser les supermarchés par défaut
+  const supermarketStore = await tx("supermarkets");
+  const existingSupermarkets = await wrap(supermarketStore.getAll());
+  if (existingSupermarkets.length === 0) {
+    const db = await openDB();
+    await new Promise((resolve, reject) => {
+      const transaction = db.transaction("supermarkets", "readwrite");
+      const writeStore = transaction.objectStore("supermarkets");
+      for (const sm of DEFAULT_SUPERMARKETS) {
+        writeStore.put({ id: uid(), ...sm, isDefault: true });
+      }
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
   }
 }
 
@@ -183,6 +240,15 @@ export async function addCategory(name) {
   const cat = { id: uid(), name: name.trim(), isDefault: false };
   store.put(cat);
   return cat;
+}
+
+export async function updateCategory(id, name) {
+  const store = await tx("categories", "readwrite");
+  const current = await wrap(store.get(id));
+  if (!current) return null;
+  const updated = { ...current, name: name.trim() };
+  store.put(updated);
+  return updated;
 }
 
 export async function deleteCategory(id) {
@@ -312,4 +378,49 @@ export async function importAllData(data) {
   });
 }
 
-export { DEFAULT_CATEGORIES, DEFAULT_UNITS, uid };
+// ----------------------------------------------------------------------------
+// Supermarchés
+// ----------------------------------------------------------------------------
+export async function getSupermarkets() {
+  const store = await tx("supermarkets");
+  const all = await wrap(store.getAll());
+  return all.sort((a, b) => a.name.localeCompare(b.name, "fr"));
+}
+
+export async function addSupermarket(name, icon = "🏬") {
+  const store = await tx("supermarkets", "readwrite");
+  const sm = { id: uid(), name: name.trim(), icon, latitude: null, longitude: null, isDefault: false };
+  store.put(sm);
+  return sm;
+}
+
+export async function updateSupermarket(id, changes) {
+  const store = await tx("supermarkets", "readwrite");
+  const current = await wrap(store.get(id));
+  if (!current) return null;
+  const updated = { ...current, ...changes };
+  store.put(updated);
+  return updated;
+}
+
+export async function deleteSupermarket(id) {
+  const store = await tx("supermarkets", "readwrite");
+  store.delete(id);
+}
+
+export async function setActiveSupermarket(id) {
+  await setSetting("activeSupermarketId", id);
+}
+
+export async function getActiveSupermarket() {
+  return getSetting("activeSupermarketId", null);
+}
+
+// ----------------------------------------------------------------------------
+// Aliments prédéfinis
+// ----------------------------------------------------------------------------
+export function getPredefinedFoods() {
+  return PREDEFINED_FOODS;
+}
+
+export { DEFAULT_CATEGORIES, DEFAULT_UNITS, DEFAULT_SUPERMARKETS, PREDEFINED_FOODS, uid };
