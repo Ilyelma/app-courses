@@ -857,3 +857,53 @@ input, textarea, select { font-family: inherit; }
   font-size: 13.5px;
   color: var(--ink-soft);
 }
+
+/* ===================== Page Courses : tuiles de magasins ===================== */
+.courses-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 6px 4px 8px;
+}
+.courses-head > span { font-size: 14.5px; color: var(--ink-soft); }
+.courses-head .btn { padding: 8px 14px; font-size: 13px; }
+
+.store-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+@media (max-width: 340px) {
+  .store-grid { grid-template-columns: 1fr; }
+}
+.store-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 138px;
+  padding: 18px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  font-family: inherit;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: center;
+}
+.store-tile:active { transform: scale(0.98); }
+.store-tile:hover { border-color: var(--accent); }
+.store-tile-icon { font-size: 40px; line-height: 1; }
+.store-tile-name {
+  font-size: 15.5px;
+  font-weight: 700;
+  margin-top: 4px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.store-tile-count { font-size: 13px; color: var(--ink-soft); }
+.store-tile-flag { font-size: 12px; font-weight: 600; color: var(--warn); margin-top: 2px; }

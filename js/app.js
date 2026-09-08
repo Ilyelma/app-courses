@@ -11,7 +11,7 @@ import {
 } from "./helpers.js";
 import { openItemModal } from "./itemModal.js";
 import { openShoppingMode } from "./shoppingMode.js";
-import { openConfirm, openPrompt, openChoice } from "./confirm.js";
+import { openConfirm, openPrompt } from "./confirm.js";
 
 const screenEl = document.getElementById("screen");
 const headerTitle = document.getElementById("header-title");
@@ -152,80 +152,77 @@ async function renderCourses() {
 
   screenEl.innerHTML = "";
 
-  const header = el(`
-    <div style="display:flex;align-items:center;justify-content:space-between;margin:6px 4px 14px;gap:8px;">
-      <span style="color:var(--ink-soft);font-size:14.5px;">${toBuy.length} article${toBuy.length > 1 ? "s" : ""}</span>
-      <div style="display:flex;gap:6px;">
-        <button class="btn btn-secondary" id="export-list" style="padding:8px 12px;font-size:12.5px;cursor:pointer;">📥 Exporter</button>
-        <button class="btn btn-primary" data-action="start-shopping" style="padding:8px 16px;font-size:12.5px;" ${toBuy.length === 0 ? "disabled" : ""}>🛒 Commencer</button>
+  if (toBuy.length === 0) {
+    screenEl.appendChild(el(`
+      <div class="empty-state">
+        <span class="emoji">🛒</span>
+        <h3>Rien à acheter</h3>
+        <p>Composez d'abord votre liste depuis l'onglet « Liste d'achat ».</p>
       </div>
+    `));
+    const goBtn = el(`<button class="btn btn-primary btn-block">Composer ma liste</button>`);
+    goBtn.addEventListener("click", () => navigate("list"));
+    screenEl.appendChild(goBtn);
+    return;
+  }
+
+  // En-tête : total + export
+  const header = el(`
+    <div class="courses-head">
+      <span>${toBuy.length} article${toBuy.length > 1 ? "s" : ""} à acheter</span>
+      <button class="btn btn-secondary" id="export-list">📥 Exporter</button>
     </div>
   `);
   screenEl.appendChild(header);
 
-  header
-    .querySelector('[data-action="start-shopping"]')
-    .addEventListener("click", startShopping);
-
-  header.querySelector("#export-list").addEventListener("click", async () => {
+  header.querySelector("#export-list").addEventListener("click", () => {
     const csv = generateListCSV(toBuy, supermarkets);
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
     link.setAttribute("href", url);
-    link.setAttribute(
-      "download",
-      `liste-courses-${new Date().toISOString().slice(0, 10)}.csv`,
-    );
+    link.setAttribute("download", `liste-courses-${new Date().toISOString().slice(0, 10)}.csv`);
     link.style.visibility = "hidden";
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
     showToast("Liste exportée");
   });
 
-  if (toBuy.length === 0) {
-    screenEl.appendChild(
-      el(`
-      <div class="empty-state">
-        <span class="emoji">🛒</span>
-        <h3>Rien à acheter</h3>
-        <p>Appuyez sur le bouton + en bas à droite pour ajouter un article.</p>
-      </div>
-    `),
-    );
-    return;
-  }
+  screenEl.appendChild(el(`<div class="section-label">Choisissez un magasin pour commencer</div>`));
 
-  // Grouper par supermarché
-  const bySupermarket = groupBy(
-    toBuy,
-    (i) => i.supermarketId || "sans-supermarche",
-  );
-  for (const [smId, smItems] of bySupermarket) {
-    const sm = supermarkets.find((s) => s.id === smId);
-    const smName = sm ? `${sm.icon} ${sm.name}` : "Sans supermarché";
-    screenEl.appendChild(
-      el(`<div class="section-label">${escapeHtml(smName)}</div>`),
-    );
+  // Une tuile par magasin ayant des articles. Le détail des articles n'est pas
+  // affiché ici : il apparaît une fois la session de courses lancée.
+  const byStore = groupBy(toBuy, (i) => i.supermarketId || "sans-supermarche");
+  const grid = el(`<div class="store-grid"></div>`);
 
-    // Sous-grouper par catégorie
-    const byCategory = groupBy(smItems, (i) => i.category);
-    for (const [category, catItems] of byCategory) {
-      const subLabel = el(
-        `<div style="font-size:13px;color:var(--ink-soft);padding:8px 16px;margin:0 0 8px 0;">${escapeHtml(category)}</div>`,
-      );
-      screenEl.appendChild(subLabel);
+  for (const [storeId, storeItems] of byStore) {
+    const sm = supermarkets.find((s) => s.id === storeId);
+    const icon = sm ? sm.icon : "🧺";
+    const name = sm ? sm.name : "Sans supermarché";
+    const important = storeItems.filter((i) => i.priority === "importante").length;
 
-      const list = el(`<div class="item-list"></div>`);
-      catItems.sort(sortByPriorityThenCategory).forEach((item) => {
-        list.appendChild(
-          renderItemRow(item, { onChange: renderCourses, editable: true }),
-        );
+    const tile = el(`
+      <button type="button" class="store-tile">
+        <span class="store-tile-icon">${icon}</span>
+        <span class="store-tile-name">${escapeHtml(name)}</span>
+        <span class="store-tile-count">${storeItems.length} article${storeItems.length > 1 ? "s" : ""}</span>
+        ${important ? `<span class="store-tile-flag">⚠️ ${important} important${important > 1 ? "s" : ""}</span>` : ""}
+      </button>
+    `);
+
+    tile.addEventListener("click", async () => {
+      await openShoppingMode({
+        supermarketId: storeId,
+        onFinished: () => refreshCurrentScreen(),
       });
-      screenEl.appendChild(list);
-    }
+    });
+
+    grid.appendChild(tile);
   }
+
+  screenEl.appendChild(grid);
 }
 
 function generateListCSV(items, supermarkets) {
@@ -509,59 +506,6 @@ async function renderShoppingList() {
   });
 
   renderResults();
-}
-
-// ============================================================================
-// Démarrage d'une session de courses.
-// Si les articles sont répartis sur plusieurs magasins, on demande lequel :
-// la session ne portera alors que sur les articles de ce magasin.
-// ============================================================================
-async function startShopping() {
-  const [items, supermarkets] = await Promise.all([
-    db.getAllItems(),
-    db.getSupermarkets(),
-  ]);
-  const toBuy = items.filter((i) => !i.purchased);
-  if (toBuy.length === 0) return;
-
-  const usedIds = [
-    ...new Set(toBuy.map((i) => i.supermarketId || "sans-supermarche")),
-  ];
-
-  let supermarketId = null;
-  if (usedIds.length > 1) {
-    const options = usedIds.map((id) => {
-      const sm = supermarkets.find((s) => s.id === id);
-      const count = toBuy.filter(
-        (i) => (i.supermarketId || "sans-supermarche") === id,
-      ).length;
-      const name = sm ? `${sm.icon} ${sm.name}` : "Sans supermarché";
-      return {
-        value: id,
-        label: `${name} — ${count} article${count > 1 ? "s" : ""}`,
-      };
-    });
-    options.push({
-      value: "__all__",
-      label: `🧺 Tous les supermarchés — ${toBuy.length} articles`,
-    });
-
-    supermarketId = await openChoice({
-      title: "Dans quel supermarché ?",
-      message:
-        "Vos articles sont répartis sur plusieurs magasins. Choisissez celui où vous faites vos courses.",
-      options,
-    });
-    if (supermarketId === null) return; // annulé
-    if (supermarketId === "__all__") supermarketId = null;
-  } else {
-    supermarketId = usedIds[0];
-  }
-
-  await openShoppingMode({
-    supermarketId,
-    onFinished: () => refreshCurrentScreen(),
-  });
 }
 
 // ============================================================================
