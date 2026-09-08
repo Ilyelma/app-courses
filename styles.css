@@ -286,10 +286,8 @@ input, textarea, select { font-family: inherit; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* Six onglets : on reduit encore sur les ecrans etroits */
 @media (max-width: 360px) {
-  .nav-btn { font-size: 9.5px; }
-  .nav-icon { font-size: 19px; }
+  .nav-btn { font-size: 10px; }
 }
 .nav-icon { font-size: 20px; line-height: 1; filter: grayscale(1); opacity: 0.55; }
 .nav-btn.active { color: var(--accent); }
@@ -755,3 +753,99 @@ input, textarea, select { font-family: inherit; }
   color: var(--accent-dark);
   margin: 2px 0 8px;
 }
+
+
+/* ===================== Accueil : cartes par supermarche ===================== */
+.store-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  cursor: pointer;
+}
+.store-card:active { transform: scale(0.99); }
+.store-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.store-card-name { font-size: 16px; font-weight: 700; }
+.store-card-count {
+  flex: none;
+  min-width: 26px;
+  text-align: center;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: var(--radius-pill);
+  padding: 2px 9px;
+}
+.store-card-preview {
+  font-size: 13.5px;
+  color: var(--ink-soft);
+  line-height: 1.45;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.store-card-flag { margin-top: 8px; font-size: 12.5px; font-weight: 600; color: var(--warn); }
+
+/* ===================== Liste d'achat ===================== */
+.list-controls {
+  position: sticky;
+  top: 0;
+  z-index: 12;
+  background: var(--bg);
+  padding: 6px 0 12px;
+  margin-bottom: 4px;
+}
+.list-store {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.list-store > span {
+  flex: none;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+.list-store select {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+}
+#list-search {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 16px; /* >=16px : evite le zoom automatique sur iOS */
+}
+#list-search:focus, .list-store select:focus { outline: none; border-color: var(--accent); }
+.cat-label {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 10px 4px 6px;
+}
+.add-missing-btn { margin: 18px 0 8px; }

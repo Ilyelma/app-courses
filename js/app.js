@@ -19,13 +19,12 @@ async function navigate(route) {
   currentRoute = route;
   historyDetailId = null;
   navButtons.forEach((b) => b.classList.toggle("active", b.dataset.route === route));
-  document.getElementById("fab-add").hidden = route === "history" || route === "settings" || route === "add";
+  document.getElementById("fab-add").hidden = route !== "courses";
   headerAction.hidden = true;
 
   if (route === "home") { headerTitle.textContent = "Accueil"; await renderHome(); }
-  else if (route === "add") { headerTitle.textContent = "Ajouter"; await renderAdd(); }
+  else if (route === "list") { headerTitle.textContent = "Liste d'achat"; await renderShoppingList(); }
   else if (route === "courses") { headerTitle.textContent = "Courses"; await renderCourses(); }
-  else if (route === "products") { headerTitle.textContent = "Produits"; await renderProducts(); }
   else if (route === "history") { headerTitle.textContent = "Historique"; await renderHistory(); }
   else if (route === "settings") { headerTitle.textContent = "Paramètres"; await renderSettings(); }
 }
@@ -42,114 +41,61 @@ function refreshCurrentScreen() {
 }
 
 // ============================================================================
-// Écran : Accueil (page stylée avec supermarchés + aliments prédéfinis)
+// Écran : Accueil — vue d'ensemble des courses à faire, par supermarché.
+// Volontairement dépouillé : aucune saisie ici, seulement l'état des lieux.
 // ============================================================================
 async function renderHome() {
-  const [items, recurrents, supermarkets, activeSupermarketId, predefinedFoods] = await Promise.all([
-    db.getAllItems(),
-    db.getRecurrents(),
-    db.getSupermarkets(),
-    db.getActiveSupermarket(),
-    Promise.resolve(db.getPredefinedFoods()),
-  ]);
-  
-  const toBuy = items.filter((i) => !i.purchased).sort(sortByPriorityThenCategory);
-  const activeSupermarket = supermarkets.find(sm => sm.id === activeSupermarketId) || supermarkets[0];
+  const [items, supermarkets] = await Promise.all([db.getAllItems(), db.getSupermarkets()]);
+  const toBuy = items.filter((i) => !i.purchased);
 
   screenEl.innerHTML = "";
 
-  // --- En-tête stylé avec sélection de supermarché ---
-  const header = el(`
-    <div style="background: linear-gradient(135deg, #1A7A4F 0%, #0f5a3a 100%); color: white; padding: 24px 16px; margin: -16px -16px 16px -16px; border-radius: 0 0 20px 20px;">
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
-        <div>
-          <div style="font-size: 28px; font-weight: 700; margin-bottom: 4px;">Mes Courses</div>
-          <div style="font-size: 13px; opacity: 0.9;">Gérez vos achats simplement</div>
-        </div>
-        <div style="font-size: 48px;">${activeSupermarket ? activeSupermarket.icon : "🛒"}</div>
-      </div>
-      
-      <div style="margin-top: 12px;">
-        <div style="font-size: 12px; opacity: 0.9; margin-bottom: 6px;">Supermarché :</div>
-        <select id="supermarket-select" style="width: 100%; padding: 10px; border: none; border-radius: 8px; font-size: 14px; background: rgba(255,255,255,0.2); color: white; cursor: pointer;">
-          ${supermarkets.map(sm => `<option value="${sm.id}" ${sm.id === activeSupermarketId ? "selected" : ""}>${sm.icon} ${sm.name}</option>`).join("")}
-        </select>
-      </div>
-    </div>
-  `);
-  screenEl.appendChild(header);
-
-  // --- Résumé + CTA courses ---
-  const summary = el(`
-    <div class="summary-card">
-      <div class="count">${toBuy.length}</div>
-      <div class="label">${toBuy.length <= 1 ? "article à acheter" : "articles à acheter"}</div>
-      <button class="btn cta btn-block" data-action="start-shopping" ${toBuy.length === 0 ? "disabled" : ""}>🛒 Commencer les courses</button>
-    </div>
-  `);
-  screenEl.appendChild(summary);
-
-  // --- Aliments prédéfinis ---
-  screenEl.appendChild(el(`<div class="section-label">Aliments courants</div>`));
-  const predefinedRow = el(`<div class="chip-row"></div>`);
-  predefinedFoods.slice(0, 8).forEach((food) => {
-    const already = toBuy.some((i) => i.name.toLowerCase() === food.name.toLowerCase());
-    const chip = el(`<button type="button" class="chip ${already ? "selected" : ""}">${already ? "✓ " : '<span class="plus">+</span>'}${escapeHtml(food.name)}</button>`);
-    chip.addEventListener("click", async () => {
-      if (already) return;
-      await db.addItem({ name: food.name, category: food.category, unit: food.unit });
-      showToast(`« ${food.name} » ajouté`);
-      renderHome();
-    });
-    predefinedRow.appendChild(chip);
-  });
-  screenEl.appendChild(predefinedRow);
-
-  // --- Ajout rapide ---
-  screenEl.appendChild(renderQuickAddBar(recurrents));
-
-  // --- Articles habituels (chips) ---
-  if (recurrents.length) {
-    screenEl.appendChild(el(`<div class="section-label">Articles habituels</div>`));
-    const row = el(`<div class="chip-row"></div>`);
-    recurrents.slice(0, 12).forEach((r) => {
-      const already = toBuy.some((i) => i.name.toLowerCase() === r.name.toLowerCase());
-      const chip = el(`<button type="button" class="chip ${already ? "selected" : ""}">${already ? "✓ " : '<span class="plus">+</span>'}${escapeHtml(r.name)}</button>`);
-      chip.addEventListener("click", async () => {
-        if (already) return;
-        await db.addItem({ name: r.name, category: r.category, unit: r.unit });
-        showToast(`« ${r.name} » ajouté`);
-        renderHome();
-      });
-      row.appendChild(chip);
-    });
-    screenEl.appendChild(row);
-  }
-
-  // --- Liste à acheter (visible immédiatement) ---
-  screenEl.appendChild(el(`<div class="section-label">À acheter</div>`));
   if (toBuy.length === 0) {
     screenEl.appendChild(el(`
       <div class="empty-state">
         <span class="emoji">✅</span>
-        <h3>Tout est acheté !</h3>
-        <p>Appuyez sur + pour ajouter un article dès qu'il vous manque quelque chose.</p>
+        <h3>Rien à acheter</h3>
+        <p>Votre liste est vide. Ouvrez « Liste d'achat » pour choisir vos produits.</p>
       </div>
     `));
-  } else {
-    const list = el(`<div class="item-list"></div>`);
-    toBuy.forEach((item) => list.appendChild(renderItemRow(item, { onChange: renderHome })));
-    screenEl.appendChild(list);
+    const goBtn = el(`<button class="btn btn-primary btn-block">Composer ma liste</button>`);
+    goBtn.addEventListener("click", () => navigate("list"));
+    screenEl.appendChild(goBtn);
+    return;
   }
 
-  screenEl.querySelector('[data-action="start-shopping"]')?.addEventListener("click", startShopping);
-  
-  // --- Gestionnaire de sélection de supermarché ---
-  header.querySelector("#supermarket-select")?.addEventListener("change", async (e) => {
-    await db.setActiveSupermarket(e.target.value);
-    showToast(`Supermarché changé`);
-    renderHome();
-  });
+  // Total en tête
+  screenEl.appendChild(el(`
+    <div class="summary-card">
+      <div class="count">${toBuy.length}</div>
+      <div class="label">${toBuy.length <= 1 ? "article à acheter" : "articles à acheter"}</div>
+    </div>
+  `));
+
+  // Une carte par supermarché concerné
+  const byStore = groupBy(toBuy, (i) => i.supermarketId || "sans-supermarche");
+  screenEl.appendChild(el(`<div class="section-label">Par supermarché</div>`));
+
+  for (const [storeId, storeItems] of byStore) {
+    const sm = supermarkets.find((s) => s.id === storeId);
+    const label = sm ? `${sm.icon} ${sm.name}` : "🧺 Sans supermarché";
+    const important = storeItems.filter((i) => i.priority === "importante").length;
+    const preview = storeItems.slice(0, 4).map((i) => escapeHtml(i.name)).join(", ");
+    const rest = storeItems.length - 4;
+
+    const card = el(`
+      <div class="store-card">
+        <div class="store-card-head">
+          <span class="store-card-name">${escapeHtml(label)}</span>
+          <span class="store-card-count">${storeItems.length}</span>
+        </div>
+        <div class="store-card-preview">${preview}${rest > 0 ? ` et ${rest} autre${rest > 1 ? "s" : ""}` : ""}</div>
+        ${important ? `<div class="store-card-flag">⚠️ ${important} article${important > 1 ? "s" : ""} important${important > 1 ? "s" : ""}</div>` : ""}
+      </div>
+    `);
+    card.addEventListener("click", () => navigate("courses"));
+    screenEl.appendChild(card);
+  }
 }
 
 // ============================================================================
@@ -245,14 +191,20 @@ function generateListCSV(items, supermarkets) {
 }
 
 // ============================================================================
-// Écran : Ajouter (formulaire dédié de saisie des produits)
+// Écran : Liste d'achat — on y compose la liste.
+// En haut les produits achetés fréquemment, en dessous le catalogue complet,
+// et un bouton pour saisir un produit absent du catalogue.
 // ============================================================================
-async function renderAdd() {
-  const [categories, supermarkets, recurrents] = await Promise.all([
-    db.getAllCategories(),
-    db.getSupermarkets(),
+async function renderShoppingList() {
+  const [items, recurrents, supermarkets, categories] = await Promise.all([
+    db.getAllItems(),
     db.getRecurrents(),
+    db.getSupermarkets(),
+    db.getAllCategories(),
   ]);
+
+  const toBuy = items.filter((i) => !i.purchased);
+  const isInList = (name) => toBuy.some((i) => i.name.toLowerCase() === name.toLowerCase());
 
   screenEl.innerHTML = "";
 
@@ -270,124 +222,180 @@ async function renderAdd() {
     return;
   }
 
-  const form = el(`
-    <div class="add-form">
-      <div class="field">
-        <label for="a-name">Nom du produit</label>
-        <input id="a-name" type="text" placeholder="Ex. Lait" autocomplete="off" />
-      </div>
-      <div id="a-suggestions"></div>
-
-      <div class="row-2">
-        <div class="field">
-          <label for="a-qty">Quantité</label>
-          <input id="a-qty" type="number" min="0" step="any" value="1" />
-        </div>
-        <div class="field">
-          <label for="a-unit">Unité</label>
-          <select id="a-unit">
-            ${db.DEFAULT_UNITS.map((u) => `<option value="${u}">${u}</option>`).join("")}
-          </select>
-        </div>
-      </div>
-
-      <div class="field">
-        <label for="a-category">Catégorie</label>
-        <select id="a-category">
-          ${categories.map((c) => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`).join("")}
+  // --- Barre fixe : magasin de destination + recherche ---
+  const controls = el(`
+    <div class="list-controls">
+      <label class="list-store">
+        <span>Ranger dans</span>
+        <select id="target-store">
+          ${supermarkets.map((sm) => `<option value="${sm.id}">${sm.icon} ${escapeHtml(sm.name)}</option>`).join("")}
         </select>
-      </div>
-
-      <div class="field">
-        <label for="a-supermarket">Supermarché</label>
-        <select id="a-supermarket">
-          ${supermarkets.map((s) => `<option value="${s.id}">${s.icon} ${escapeHtml(s.name)}</option>`).join("")}
-        </select>
-      </div>
-
-      <div class="field">
-        <label for="a-notes">Notes (facultatif)</label>
-        <input id="a-notes" type="text" placeholder="Ex. marque préférée, sans sucre..." />
-      </div>
-
-      <button class="btn btn-primary btn-block" id="a-submit">Ajouter à la liste</button>
-      <p class="add-hint" id="a-hint">Le formulaire reste ouvert : enchaînez vos produits.</p>
+      </label>
+      <input id="list-search" type="search" placeholder="Rechercher un produit..." autocomplete="off" />
     </div>
   `);
-  screenEl.appendChild(form);
+  screenEl.appendChild(controls);
 
-  const nameInput = form.querySelector("#a-name");
-  const qtyInput = form.querySelector("#a-qty");
-  const unitSelect = form.querySelector("#a-unit");
-  const catSelect = form.querySelector("#a-category");
-  const smSelect = form.querySelector("#a-supermarket");
-  const notesInput = form.querySelector("#a-notes");
-  const suggestionsBox = form.querySelector("#a-suggestions");
-  const hint = form.querySelector("#a-hint");
+  const storeSelect = controls.querySelector("#target-store");
+  const searchInput = controls.querySelector("#list-search");
 
-  // Suggestions issues des articles déjà utilisés
-  nameInput.addEventListener("input", () => {
-    const q = nameInput.value.trim().toLowerCase();
-    if (!q) { suggestionsBox.innerHTML = ""; return; }
-    const known = [
-      ...recurrents.map((r) => ({ name: r.name, category: r.category, unit: r.unit })),
-      ...db.getPredefinedFoods(),
-    ];
-    const seen = new Set();
-    const matches = known.filter((k) => {
-      const key = k.name.toLowerCase();
-      if (seen.has(key) || !key.includes(q) || key === q) return false;
-      seen.add(key);
-      return true;
-    }).slice(0, 4);
+  const resultsEl = el(`<div id="list-results"></div>`);
+  screenEl.appendChild(resultsEl);
 
-    suggestionsBox.innerHTML = matches.length
-      ? `<div class="suggestions-list">${matches.map((m) => `<button type="button" data-name="${escapeHtml(m.name)}" data-cat="${escapeHtml(m.category)}" data-unit="${escapeHtml(m.unit)}"><b>${escapeHtml(m.name)}</b> · ${escapeHtml(m.category)}</button>`).join("")}</div>`
-      : "";
-  });
-
-  suggestionsBox.addEventListener("click", (e) => {
-    const btn = e.target.closest("[data-name]");
-    if (!btn) return;
-    nameInput.value = btn.dataset.name;
-    if ([...catSelect.options].some((o) => o.value === btn.dataset.cat)) catSelect.value = btn.dataset.cat;
-    if ([...unitSelect.options].some((o) => o.value === btn.dataset.unit)) unitSelect.value = btn.dataset.unit;
-    suggestionsBox.innerHTML = "";
-    qtyInput.focus();
-  });
-
-  async function submit() {
-    const name = nameInput.value.trim();
-    if (!name) { nameInput.focus(); showToast("Indiquez un nom de produit"); return; }
-
-    const smId = smSelect.value;
-    const smName = supermarkets.find((s) => s.id === smId)?.name ?? "";
-
-    await db.addItem({
-      name,
-      category: catSelect.value,
-      quantity: Number(qtyInput.value) || 1,
-      unit: unitSelect.value,
-      supermarketId: smId,
-      notes: notesInput.value.trim(),
-    });
-
-    showToast(`« ${name} » ajouté${smName ? ` à ${smName}` : ""}`);
-
-    // On conserve catégorie et supermarché pour enchaîner les saisies.
-    nameInput.value = "";
-    qtyInput.value = "1";
-    notesInput.value = "";
-    suggestionsBox.innerHTML = "";
-    hint.textContent = `Dernier ajout : ${name}${smName ? ` → ${smName}` : ""}`;
-    nameInput.focus();
+  // Ajoute un produit au magasin actuellement sélectionné.
+  async function addProduct({ name, category, unit }) {
+    const storeId = storeSelect.value;
+    const storeName = supermarkets.find((s) => s.id === storeId)?.name ?? "";
+    await db.addItem({ name, category, unit, supermarketId: storeId });
+    showToast(`« ${name} » → ${storeName}`);
+    renderShoppingList();
   }
 
-  form.querySelector("#a-submit").addEventListener("click", submit);
-  nameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
-  notesInput.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
+  function productRow(product) {
+    const already = isInList(product.name);
+    const row = el(`
+      <div class="item-row ${already ? "purchased" : ""}">
+        <button class="checkbox ${already ? "checked" : ""}" data-action="add">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <div class="item-info">
+          <div class="item-name">${escapeHtml(product.name)}</div>
+          <div class="item-meta"><span>${escapeHtml(product.category)}</span>${already ? `<span> · déjà dans la liste</span>` : ""}</div>
+        </div>
+        <div class="item-qty">${escapeHtml(product.unit)}</div>
+      </div>
+    `);
+    row.querySelector('[data-action="add"]').addEventListener("click", () => {
+      if (already) return;
+      addProduct(product);
+    });
+    return row;
+  }
 
-  nameInput.focus();
+  // Catalogue = produits prédéfinis + tout ce que l'utilisateur a déjà acheté,
+  // dédoublonné sur le nom.
+  function buildCatalog() {
+    const seen = new Map();
+    for (const r of recurrents) {
+      seen.set(r.name.toLowerCase(), { name: r.name, category: r.category, unit: r.unit });
+    }
+    for (const f of db.getPredefinedFoods()) {
+      if (!seen.has(f.name.toLowerCase())) seen.set(f.name.toLowerCase(), f);
+    }
+    return [...seen.values()];
+  }
+
+  const catalog = buildCatalog();
+
+  function renderResults(query = "") {
+    const q = query.trim().toLowerCase();
+    resultsEl.innerHTML = "";
+
+    // --- Achetés fréquemment ---
+    const frequent = recurrents
+      .filter((r) => (r.useCount || 0) >= 1 && (!q || r.name.toLowerCase().includes(q)))
+      .slice(0, 8);
+
+    if (frequent.length) {
+      resultsEl.appendChild(el(`<div class="section-label">Achetés fréquemment</div>`));
+      const chips = el(`<div class="chip-row"></div>`);
+      frequent.forEach((r) => {
+        const already = isInList(r.name);
+        const chip = el(`<button type="button" class="chip ${already ? "selected" : ""}">${already ? "✓ " : '<span class="plus">+</span>'}${escapeHtml(r.name)}</button>`);
+        chip.addEventListener("click", () => {
+          if (already) return;
+          addProduct({ name: r.name, category: r.category, unit: r.unit });
+        });
+        chips.appendChild(chip);
+      });
+      resultsEl.appendChild(chips);
+    }
+
+    // --- Catalogue complet, groupé par catégorie ---
+    const filtered = q ? catalog.filter((p) => p.name.toLowerCase().includes(q)) : catalog;
+
+    if (filtered.length === 0) {
+      resultsEl.appendChild(el(`
+        <div class="empty-state" style="padding:28px 12px;">
+          <span class="emoji">🔍</span>
+          <h3>Aucun produit trouvé</h3>
+          <p>« ${escapeHtml(query)} » n'est pas dans votre catalogue.</p>
+        </div>
+      `));
+    } else {
+      resultsEl.appendChild(el(`<div class="section-label">${q ? "Résultats" : "Tous les produits"}</div>`));
+      for (const [category, catProducts] of groupBy(filtered, (p) => p.category)) {
+        resultsEl.appendChild(el(`<div class="cat-label">${escapeHtml(category)}</div>`));
+        const list = el(`<div class="item-list"></div>`);
+        catProducts
+          .sort((a, b) => a.name.localeCompare(b.name, "fr"))
+          .forEach((p) => list.appendChild(productRow(p)));
+        resultsEl.appendChild(list);
+      }
+    }
+
+    // --- Produit absent du catalogue ---
+    const addBtn = el(`
+      <button class="btn btn-secondary btn-block add-missing-btn">
+        ➕ ${q ? `Ajouter « ${escapeHtml(query)} »` : "Ajouter un produit absent de la liste"}
+      </button>
+    `);
+    addBtn.addEventListener("click", () => {
+      openItemModal({
+        presetName: q ? query.trim() : "",
+        presetSupermarketId: storeSelect.value,
+        onSaved: () => renderShoppingList(),
+      });
+    });
+    resultsEl.appendChild(addBtn);
+  }
+
+  let searchTimer;
+  searchInput.addEventListener("input", () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => renderResults(searchInput.value), 120);
+  });
+
+  renderResults();
+}
+
+// ============================================================================
+// Démarrage d'une session de courses.
+// Si les articles sont répartis sur plusieurs magasins, on demande lequel :
+// la session ne portera alors que sur les articles de ce magasin.
+// ============================================================================
+async function startShopping() {
+  const [items, supermarkets] = await Promise.all([db.getAllItems(), db.getSupermarkets()]);
+  const toBuy = items.filter((i) => !i.purchased);
+  if (toBuy.length === 0) return;
+
+  const usedIds = [...new Set(toBuy.map((i) => i.supermarketId || "sans-supermarche"))];
+
+  let supermarketId = null;
+  if (usedIds.length > 1) {
+    const options = usedIds.map((id) => {
+      const sm = supermarkets.find((s) => s.id === id);
+      const count = toBuy.filter((i) => (i.supermarketId || "sans-supermarche") === id).length;
+      const name = sm ? `${sm.icon} ${sm.name}` : "Sans supermarché";
+      return { value: id, label: `${name} — ${count} article${count > 1 ? "s" : ""}` };
+    });
+    options.push({ value: "__all__", label: `🧺 Tous les supermarchés — ${toBuy.length} articles` });
+
+    supermarketId = await openChoice({
+      title: "Dans quel supermarché ?",
+      message: "Vos articles sont répartis sur plusieurs magasins. Choisissez celui où vous faites vos courses.",
+      options,
+    });
+    if (supermarketId === null) return; // annulé
+    if (supermarketId === "__all__") supermarketId = null;
+  } else {
+    supermarketId = usedIds[0];
+  }
+
+  await openShoppingMode({
+    supermarketId,
+    onFinished: () => refreshCurrentScreen(),
+  });
 }
 
 // ============================================================================
@@ -476,146 +484,6 @@ async function openItemEditSheet(item, onChange) {
 // ============================================================================
 // Barre de saisie rapide (Accueil)
 // ============================================================================
-function renderQuickAddBar(recurrents) {
-  const wrap = el(`
-    <div>
-      <div class="quick-add-bar">
-        <input id="quick-add-input" type="text" placeholder="Ajouter un article... (ex. Lait)" autocomplete="off" />
-        <button id="quick-add-btn" disabled>Ajouter</button>
-      </div>
-      <div id="quick-add-suggestions"></div>
-    </div>
-  `);
-
-  const input = wrap.querySelector("#quick-add-input");
-  const btn = wrap.querySelector("#quick-add-btn");
-  const suggestBox = wrap.querySelector("#quick-add-suggestions");
-
-  input.addEventListener("input", () => {
-    btn.disabled = !input.value.trim();
-    const q = input.value.trim().toLowerCase();
-    if (!q) { suggestBox.innerHTML = ""; return; }
-    const matches = recurrents.filter((r) => r.name.toLowerCase().includes(q)).slice(0, 4);
-    suggestBox.innerHTML = matches.length ? `
-      <div class="suggestions-list">
-        ${matches.map((m) => `<button type="button" data-fill="${escapeHtml(m.name)}"><b>${escapeHtml(m.name)}</b> · ${escapeHtml(m.category)}</button>`).join("")}
-      </div>` : "";
-  });
-
-  suggestBox.addEventListener("click", (e) => {
-    const b = e.target.closest("[data-fill]");
-    if (!b) return;
-    quickAdd(b.dataset.fill);
-  });
-
-  async function quickAdd(name) {
-    const value = (name ?? input.value).trim();
-    if (!value) return;
-    await db.addItem({ name: value });
-    input.value = "";
-    suggestBox.innerHTML = "";
-    showToast(`« ${value} » ajouté`);
-    renderHome();
-  }
-
-  btn.addEventListener("click", () => quickAdd());
-  input.addEventListener("keydown", (e) => { if (e.key === "Enter") quickAdd(); });
-
-  return wrap;
-}
-
-// ============================================================================
-// Mode courses
-// ============================================================================
-async function startShopping() {
-  const [items, supermarkets] = await Promise.all([db.getAllItems(), db.getSupermarkets()]);
-  const toBuy = items.filter((i) => !i.purchased);
-
-  // Recense les supermarches qui ont effectivement des articles a acheter.
-  const usedIds = [...new Set(toBuy.map((i) => i.supermarketId || "sans-supermarche"))];
-
-  let supermarketId = null;
-  if (usedIds.length > 1) {
-    const options = usedIds.map((id) => {
-      const sm = supermarkets.find((s) => s.id === id);
-      const count = toBuy.filter((i) => (i.supermarketId || "sans-supermarche") === id).length;
-      const name = sm ? `${sm.icon} ${sm.name}` : "Sans supermarché";
-      return { value: id, label: `${name} — ${count} article${count > 1 ? "s" : ""}` };
-    });
-    options.push({ value: "__all__", label: `🧺 Tous les supermarchés — ${toBuy.length} articles` });
-
-    supermarketId = await openChoice({
-      title: "Dans quel supermarché ?",
-      message: "Vos articles sont répartis sur plusieurs magasins. Choisissez celui où vous faites vos courses.",
-      options,
-    });
-    if (supermarketId === null) return; // annule
-    if (supermarketId === "__all__") supermarketId = null;
-  } else if (usedIds.length === 1) {
-    supermarketId = usedIds[0];
-  }
-
-  await openShoppingMode({
-    supermarketId,
-    onFinished: () => refreshCurrentScreen(),
-  });
-}
-
-// ============================================================================
-// Écran : Produits (aliments prédéfinis)
-// ============================================================================
-async function renderProducts() {
-  const foods = db.getPredefinedFoods();
-  const [items, categories] = await Promise.all([db.getAllItems(), db.getAllCategories()]);
-  
-  screenEl.innerHTML = "";
-
-  const header = el(`
-    <div style="padding:12px 16px;color:var(--ink-soft);font-size:13.5px;margin-bottom:8px;">
-      ${foods.length} produits disponibles
-    </div>
-  `);
-  screenEl.appendChild(header);
-
-  // Grouper par catégorie
-  const byCategory = groupBy(foods, (f) => f.category);
-  
-  for (const [category, catFoods] of byCategory) {
-    screenEl.appendChild(el(`<div class="section-label">${escapeHtml(category)}</div>`));
-    const list = el(`<div class="item-list"></div>`);
-    
-    catFoods.forEach((food) => {
-      const isAdded = items.some((i) => i.name.toLowerCase() === food.name.toLowerCase() && !i.purchased);
-      const row = el(`
-        <div class="item-row ${isAdded ? "purchased" : ""}" data-id="${food.name}">
-          <button class="checkbox ${isAdded ? "checked" : ""}" data-action="toggle" style="cursor:pointer;">
-            <svg viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          </button>
-          <div class="item-info">
-            <div class="item-name">${escapeHtml(food.name)}</div>
-            <div class="item-meta"><span>${escapeHtml(food.category)}</span></div>
-          </div>
-          <div class="item-qty">${food.unit}</div>
-        </div>
-      `);
-      
-      row.querySelector('[data-action="toggle"]').addEventListener("click", async () => {
-        if (isAdded) return;
-        await db.addItem({
-          name: food.name,
-          category: food.category,
-          unit: food.unit,
-        });
-        showToast(`« ${food.name} » ajouté`);
-        renderProducts();
-      });
-      
-      list.appendChild(row);
-    });
-    screenEl.appendChild(list);
-  }
-}
-
 // ============================================================================
 // Écran : Historique
 // ============================================================================

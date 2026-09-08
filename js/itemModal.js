@@ -4,7 +4,7 @@ import { el, showToast } from "./helpers.js";
 // Ouvre le popup (centré) d'ajout / édition d'un article.
 // `existingItem` (optionnel) : si fourni, le formulaire est pré-rempli et
 // la validation met à jour l'article au lieu d'en créer un nouveau.
-export async function openItemModal({ existingItem = null, onSaved } = {}) {
+export async function openItemModal({ existingItem = null, presetName = "", presetSupermarketId = null, onSaved } = {}) {
   const backdrop = document.getElementById("item-modal");
   const [categories, recurrents, supermarkets, activeSupermarketId] = await Promise.all([
     db.getAllCategories(),
@@ -16,7 +16,7 @@ export async function openItemModal({ existingItem = null, onSaved } = {}) {
   const isEdit = !!existingItem;
   let selectedPriority = existingItem?.priority || "normale";
 
-  const currentSupermarketId = existingItem?.supermarketId || activeSupermarketId;
+  const currentSupermarketId = existingItem?.supermarketId || presetSupermarketId || activeSupermarketId;
 
   const categoryOptions = categories
     .map((c) => `<option value="${c.name}" ${existingItem?.category === c.name ? "selected" : ""}>${c.name}</option>`)
@@ -40,7 +40,7 @@ export async function openItemModal({ existingItem = null, onSaved } = {}) {
       <div class="modal-body">
         <div class="field">
           <label for="f-name">Nom de l'article</label>
-          <input id="f-name" type="text" placeholder="Ex. Lait" autocomplete="off" value="${existingItem?.name ?? ""}" />
+          <input id="f-name" type="text" placeholder="Ex. Lait" autocomplete="off" value="${String(existingItem?.name ?? presetName).replace(/"/g, "&quot;")}" />
         </div>
         <div id="f-suggestions"></div>
 
