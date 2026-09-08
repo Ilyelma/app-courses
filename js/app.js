@@ -19,11 +19,13 @@ async function navigate(route) {
   currentRoute = route;
   historyDetailId = null;
   navButtons.forEach((b) => b.classList.toggle("active", b.dataset.route === route));
-  document.getElementById("fab-add").hidden = route === "history" || route === "settings";
+  document.getElementById("fab-add").hidden = route !== "home" && route !== "courses";
   headerAction.hidden = true;
 
   if (route === "home") { headerTitle.textContent = "Accueil"; await renderHome(); }
-  else if (route === "list") { headerTitle.textContent = "À acheter"; await renderList(); }
+  else if (route === "add") { headerTitle.textContent = "Ajouter un produit"; await renderAdd(); headerAction.hidden = false; headerAction.textContent = "‹"; headerAction.onclick = () => navigate("home"); }
+  else if (route === "courses") { headerTitle.textContent = "Courses"; await renderCourses(); }
+  else if (route === "products") { headerTitle.textContent = "Produits"; await renderProducts(); }
   else if (route === "history") { headerTitle.textContent = "Historique"; await renderHistory(); }
   else if (route === "settings") { headerTitle.textContent = "Paramètres"; await renderSettings(); }
 }
@@ -31,7 +33,8 @@ async function navigate(route) {
 navButtons.forEach((btn) => btn.addEventListener("click", () => navigate(btn.dataset.route)));
 
 document.getElementById("fab-add").addEventListener("click", () => {
-  openItemModal({ onSaved: () => refreshCurrentScreen() });
+  if (currentRoute === "add") return;
+  navigate("add");
 });
 
 function refreshCurrentScreen() {
@@ -153,20 +156,41 @@ async function renderHome() {
 // ============================================================================
 // Écran : À acheter (liste complète, groupée par catégorie, gestion fine)
 // ============================================================================
-async function renderList() {
-  const items = await db.getAllItems();
+// ============================================================================
+// Écran : Courses (liste groupée par supermarché)
+// ============================================================================
+async function renderCourses() {
+  const [items, supermarkets] = await Promise.all([db.getAllItems(), db.getSupermarkets()]);
   const toBuy = items.filter((i) => !i.purchased);
 
   screenEl.innerHTML = "";
 
   const header = el(`
-    <div style="display:flex;align-items:center;justify-content:space-between;margin:6px 4px 14px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin:6px 4px 14px;gap:8px;">
       <span style="color:var(--ink-soft);font-size:14.5px;">${toBuy.length} article${toBuy.length > 1 ? "s" : ""}</span>
-      <button class="btn btn-primary" data-action="start-shopping" style="padding:10px 16px;font-size:14.5px;" ${toBuy.length === 0 ? "disabled" : ""}>🛒 Commencer</button>
+      <div style="display:flex;gap:6px;">
+        <button class="btn btn-secondary" id="export-list" style="padding:8px 12px;font-size:12.5px;cursor:pointer;">📥 Exporter</button>
+        <button class="btn btn-primary" data-action="start-shopping" style="padding:8px 16px;font-size:12.5px;" ${toBuy.length === 0 ? "disabled" : ""}>🛒 Commencer</button>
+      </div>
     </div>
   `);
   screenEl.appendChild(header);
+  
   header.querySelector('[data-action="start-shopping"]').addEventListener("click", startShopping);
+  
+  header.querySelector('#export-list').addEventListener("click", async () => {
+    const csv = generateListCSV(toBuy, supermarkets);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `liste-courses-${new Date().toISOString().slice(0, 10)}.csv`);
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast("Liste exportée");
+  });
 
   if (toBuy.length === 0) {
     screenEl.appendChild(el(`
@@ -179,15 +203,141 @@ async function renderList() {
     return;
   }
 
-  const byCategory = groupBy(toBuy, (i) => i.category);
-  for (const [category, catItems] of byCategory) {
-    screenEl.appendChild(el(`<div class="section-label">${escapeHtml(category)}</div>`));
-    const list = el(`<div class="item-list"></div>`);
-    catItems.sort(sortByPriorityThenCategory).forEach((item) => {
-      list.appendChild(renderItemRow(item, { onChange: renderList, editable: true }));
-    });
-    screenEl.appendChild(list);
+  // Grouper par supermarché
+  const bySupermarket = groupBy(toBuy, (i) => i.supermarketId || "sans-supermarche");
+  for (const [smId, smItems] of bySupermarket) {
+    const sm = supermarkets.find(s => s.id === smId);
+    const smName = sm ? `${sm.icon} ${sm.name}` : "Sans supermarché";
+    screenEl.appendChild(el(`<div class="section-label">${escapeHtml(smName)}</div>`));
+    
+    // Sous-grouper par catégorie
+    const byCategory = groupBy(smItems, (i) => i.category);
+    for (const [category, catItems] of byCategory) {
+      const subLabel = el(`<div style="font-size:13px;color:var(--ink-soft);padding:8px 16px;margin:0 0 8px 0;">${escapeHtml(category)}</div>`);
+      screenEl.appendChild(subLabel);
+      
+      const list = el(`<div class="item-list"></div>`);
+      catItems.sort(sortByPriorityThenCategory).forEach((item) => {
+        list.appendChild(renderItemRow(item, { onChange: renderCourses, editable: true }));
+      });
+      screenEl.appendChild(list);
+    }
   }
+}
+
+function generateListCSV(items, supermarkets) {
+  const bySupermarket = groupBy(items, (i) => i.supermarketId || "sans-supermarche");
+  let csv = "Supermarché,Catégorie,Produit,Quantité,Unité,Notes\n";
+  
+  for (const [smId, smItems] of bySupermarket) {
+    const sm = supermarkets.find(s => s.id === smId);
+    const smName = sm ? sm.name : "Sans supermarché";
+    
+    const byCategory = groupBy(smItems, (i) => i.category);
+    for (const [category, catItems] of byCategory) {
+      catItems.forEach((item) => {
+        const notes = item.notes ? `"${item.notes}"` : "";
+        csv += `"${smName}","${category}","${item.name}",${item.quantity},"${item.unit}",${notes}\n`;
+      });
+    }
+  }
+  
+  return csv;
+}
+
+// ============================================================================
+// Écran : Ajouter produit
+// ============================================================================
+async function renderAdd() {
+  const [categories, supermarkets, activeSupermarketId] = await Promise.all([
+    db.getAllCategories(),
+    db.getSupermarkets(),
+    db.getActiveSupermarket(),
+  ]);
+
+  screenEl.innerHTML = "";
+
+  const form = el(`
+    <div style="padding: 16px;">
+      <div style="margin-bottom: 16px;">
+        <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;color:var(--ink-soft);">Nom du produit *</label>
+        <input id="add-name" type="text" placeholder="Ex: Lait, Café, Pain..." style="width:100%;padding:12px;border:1px solid var(--border-light);border-radius:8px;font-size:15px;box-sizing:border-box;" />
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+        <div>
+          <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;color:var(--ink-soft);">Quantité</label>
+          <input id="add-qty" type="number" value="1" min="0.1" step="0.1" style="width:100%;padding:12px;border:1px solid var(--border-light);border-radius:8px;font-size:15px;box-sizing:border-box;" />
+        </div>
+        <div>
+          <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;color:var(--ink-soft);">Unité</label>
+          <select id="add-unit" style="width:100%;padding:12px;border:1px solid var(--border-light);border-radius:8px;font-size:15px;box-sizing:border-box;">
+            ${db.DEFAULT_UNITS.map(u => `<option value="${u}">${u}</option>`).join("")}
+          </select>
+        </div>
+      </div>
+
+      <div style="margin-bottom: 16px;">
+        <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;color:var(--ink-soft);">Catégorie</label>
+        <select id="add-category" style="width:100%;padding:12px;border:1px solid var(--border-light);border-radius:8px;font-size:15px;box-sizing:border-box;">
+          ${categories.map(c => `<option value="${c.id}">${c.name}</option>`).join("")}
+        </select>
+      </div>
+
+      <div style="margin-bottom: 16px;">
+        <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;color:var(--ink-soft);">Supermarché</label>
+        <select id="add-supermarket" style="width:100%;padding:12px;border:1px solid var(--border-light);border-radius:8px;font-size:15px;box-sizing:border-box;">
+          ${supermarkets.map(sm => `<option value="${sm.id}" ${sm.id === activeSupermarketId ? "selected" : ""}>${sm.icon} ${sm.name}</option>`).join("")}
+        </select>
+      </div>
+
+      <div style="margin-bottom: 16px;">
+        <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;color:var(--ink-soft);">Notes (optionnel)</label>
+        <input id="add-notes" type="text" placeholder="Ex: Sans sucre, marque X..." style="width:100%;padding:12px;border:1px solid var(--border-light);border-radius:8px;font-size:15px;box-sizing:border-box;" />
+      </div>
+
+      <div style="display:flex;gap:8px;padding-top:8px;">
+        <button id="add-submit" class="btn btn-primary btn-block">✓ Ajouter</button>
+        <button id="add-reset" class="btn btn-block" style="background:var(--bg-soft);color:var(--ink);border:1px solid var(--border-light);">↻ Réinitialiser</button>
+      </div>
+    </div>
+  `);
+
+  screenEl.appendChild(form);
+
+  const nameInput = form.querySelector("#add-name");
+  const qtyInput = form.querySelector("#add-qty");
+  const unitSelect = form.querySelector("#add-unit");
+  const categorySelect = form.querySelector("#add-category");
+  const supermarketSelect = form.querySelector("#add-supermarket");
+  const notesInput = form.querySelector("#add-notes");
+
+  form.querySelector("#add-submit").addEventListener("click", async () => {
+    if (!nameInput.value.trim()) {
+      showToast("Le nom du produit est obligatoire");
+      return;
+    }
+    const selectedCategoryId = categorySelect.value;
+    const selectedCategory = categories.find(c => c.id === selectedCategoryId);
+    
+    await db.addItem({
+      name: nameInput.value.trim(),
+      category: selectedCategory?.name || "Autre",
+      quantity: parseFloat(qtyInput.value) || 1,
+      unit: unitSelect.value,
+      supermarketId: supermarketSelect.value,
+      notes: notesInput.value.trim(),
+    });
+    showToast(`« ${nameInput.value} » ajouté`);
+    navigate("courses");
+  });
+
+  form.querySelector("#add-reset").addEventListener("click", () => {
+    nameInput.value = "";
+    qtyInput.value = "1";
+    unitSelect.value = "pièce";
+    notesInput.value = "";
+  });
 }
 
 function groupBy(arr, keyFn) {
@@ -331,6 +481,61 @@ async function startShopping() {
 }
 
 // ============================================================================
+// Écran : Produits (aliments prédéfinis)
+// ============================================================================
+async function renderProducts() {
+  const foods = db.getPredefinedFoods();
+  const [items, categories] = await Promise.all([db.getAllItems(), db.getAllCategories()]);
+  
+  screenEl.innerHTML = "";
+
+  const header = el(`
+    <div style="padding:12px 16px;color:var(--ink-soft);font-size:13.5px;margin-bottom:8px;">
+      ${foods.length} produits disponibles
+    </div>
+  `);
+  screenEl.appendChild(header);
+
+  // Grouper par catégorie
+  const byCategory = groupBy(foods, (f) => f.category);
+  
+  for (const [category, catFoods] of byCategory) {
+    screenEl.appendChild(el(`<div class="section-label">${escapeHtml(category)}</div>`));
+    const list = el(`<div class="item-list"></div>`);
+    
+    catFoods.forEach((food) => {
+      const isAdded = items.some((i) => i.name.toLowerCase() === food.name.toLowerCase() && !i.purchased);
+      const row = el(`
+        <div class="item-row ${isAdded ? "purchased" : ""}" data-id="${food.name}">
+          <button class="checkbox ${isAdded ? "checked" : ""}" data-action="toggle" style="cursor:pointer;">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <div class="item-info">
+            <div class="item-name">${escapeHtml(food.name)}</div>
+            <div class="item-meta"><span>${escapeHtml(food.category)}</span></div>
+          </div>
+          <div class="item-qty">${food.unit}</div>
+        </div>
+      `);
+      
+      row.querySelector('[data-action="toggle"]').addEventListener("click", async () => {
+        if (isAdded) return;
+        await db.addItem({
+          name: food.name,
+          category: food.category,
+          unit: food.unit,
+        });
+        showToast(`« ${food.name} » ajouté`);
+        renderProducts();
+      });
+      
+      list.appendChild(row);
+    });
+    screenEl.appendChild(list);
+  }
+}
+
+// ============================================================================
 // Écran : Historique
 // ============================================================================
 async function renderHistory() {
@@ -435,8 +640,8 @@ async function renderHistoryDetail(id) {
   const list = el(`<div class="item-list"></div>`);
   entry.items.forEach((item) => {
     const total = computeItemTotal(item);
-    list.appendChild(el(`
-      <div class="item-row ${item.purchased ? "purchased" : ""}">
+    const row = el(`
+      <div class="item-row ${item.purchased ? "purchased" : ""}" data-item-name="${item.name}">
         <div class="checkbox ${item.purchased ? "checked" : ""}" style="pointer-events:none;">
           <svg viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
@@ -451,8 +656,22 @@ async function renderHistoryDetail(id) {
           <div class="item-qty">${formatQty(item)}</div>
           ${total ? `<div style="font-size:12.5px;color:var(--ink-soft);margin-top:4px;">${formatPrice(total)}</div>` : ""}
         </div>
+        <button class="link" style="padding:6px 10px;font-size:12px;cursor:pointer;" data-action="edit">✎</button>
       </div>
-    `));
+    `);
+    
+    row.querySelector('[data-action="edit"]').addEventListener("click", async () => {
+      const newQty = prompt("Nouvelle quantité :", item.quantity);
+      if (newQty && newQty !== item.quantity.toString()) {
+        const updatedItems = entry.items.map(i => 
+          i.name === item.name ? { ...i, quantity: parseFloat(newQty) || item.quantity } : i
+        );
+        await db.updateHistoryEntry(entry.id, { items: updatedItems });
+        renderHistoryDetail(id);
+      }
+    });
+    
+    list.appendChild(row);
   });
   screenEl.appendChild(el(`<div class="section-label">Articles</div>`));
   screenEl.appendChild(list);
@@ -466,10 +685,11 @@ async function renderHistoryDetail(id) {
         quantity: item.quantity,
         unit: item.unit,
         priority: item.priority,
+        supermarketId: item.supermarketId,
       });
     }
     showToast("Articles ajoutés à votre liste actuelle");
-    navigate("list");
+    navigate("courses");
   });
   screenEl.appendChild(rebuyBtn);
 }
@@ -492,15 +712,25 @@ async function renderSettings() {
   const smGroup = el(`<div class="settings-group"></div>`);
   supermarkets.forEach((sm) => {
     const row = el(`
-      <div class="settings-row">
-        <div>
-          <div class="label">${sm.icon} ${escapeHtml(sm.name)}</div>
-          ${sm.isDefault ? `<div class="sub">Défaut</div>` : ""}
+      <div class="settings-row" data-sm-id="${sm.id}">
+        <div style="flex:1;">
+          <div class="label" data-editable="${!sm.isDefault}" style="${!sm.isDefault ? "cursor:pointer;" : ""}">${sm.icon} ${escapeHtml(sm.name)}</div>
+          ${sm.isDefault ? `<div class="sub">Défaut</div>` : `<div class="sub" style="font-size:11px;color:var(--ink-soft);">Cliquez pour renommer</div>`}
         </div>
         ${sm.isDefault ? "" : `<button class="link danger" data-del-sm="${sm.id}">Supprimer</button>`}
       </div>
     `);
     smGroup.appendChild(row);
+    
+    if (!sm.isDefault) {
+      row.querySelector('[data-editable]').addEventListener("click", async () => {
+        const newName = prompt("Renommer le supermarché :", sm.name);
+        if (newName && newName.trim() !== sm.name) {
+          await db.updateSupermarket(sm.id, { name: newName.trim() });
+          renderSettings();
+        }
+      });
+    }
   });
   
   const addSmRow = el(`

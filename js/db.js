@@ -185,6 +185,7 @@ export async function getAllItems() {
 
 export async function addItem(partial) {
   const store = await tx("items", "readwrite");
+  const activeSupermarketId = await getSetting("activeSupermarketId", null);
   const item = {
     id: uid(),
     name: partial.name.trim(),
@@ -196,6 +197,7 @@ export async function addItem(partial) {
     purchased: false,
     priceUnit: partial.priceUnit ?? null,
     priceTotal: partial.priceTotal ?? null,
+    supermarketId: partial.supermarketId || activeSupermarketId,
     createdAt: new Date().toISOString(),
     // --- Architecture "stock maison" (désactivée en v1, prête pour plus tard) ---
     stockEnabled: false,
@@ -320,6 +322,15 @@ export async function addHistoryEntry(entry) {
 export async function deleteHistoryEntry(id) {
   const store = await tx("history", "readwrite");
   store.delete(id);
+}
+
+export async function updateHistoryEntry(id, changes) {
+  const store = await tx("history", "readwrite");
+  const current = await wrap(store.get(id));
+  if (!current) return null;
+  const updated = { ...current, ...changes };
+  store.put(updated);
+  return updated;
 }
 
 // ----------------------------------------------------------------------------
