@@ -1,12 +1,26 @@
 import * as db from "./db.js";
 import { el, formatQty, showToast } from "./helpers.js";
 
-export async function openShoppingMode({ onFinished }) {
+export async function openShoppingMode({ onFinished, supermarketId = null }) {
   const overlay = document.getElementById("shopping-mode");
   overlay.hidden = false;
 
+  // Nom du magasin affiche en en-tete lorsqu'une session est ciblee.
+  let supermarketLabel = "";
+  if (supermarketId) {
+    const sms = await db.getSupermarkets();
+    const sm = sms.find((s) => s.id === supermarketId);
+    supermarketLabel = sm ? `${sm.icon} ${sm.name}` : "Sans supermarché";
+  }
+
+  // Ne retient que les articles du magasin choisi (tous si supermarketId est null).
+  function inScope(item) {
+    if (!supermarketId) return true;
+    return (item.supermarketId || "sans-supermarche") === supermarketId;
+  }
+
   async function render() {
-    const items = await db.getAllItems();
+    const items = (await db.getAllItems()).filter(inScope);
     const toBuy = items.filter((i) => !i.purchased).sort(sortItems);
     const bought = items.filter((i) => i.purchased).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     const total = items.length;
@@ -20,6 +34,7 @@ export async function openShoppingMode({ onFinished }) {
           <strong>${done} / ${total} articles</strong>
           <span style="width:52px"></span>
         </div>
+        ${supermarketLabel ? `<div class="shopping-store">${supermarketLabel}</div>` : ""}
         <div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
       </div>
       <div class="shopping-body" id="shopping-body"></div>
@@ -85,7 +100,7 @@ export async function openShoppingMode({ onFinished }) {
   }
 
   async function handleFinish() {
-    const items = await db.getAllItems();
+    const items = (await db.getAllItems()).filter(inScope);
     const bought = items.filter((i) => i.purchased);
     const notBought = items.filter((i) => !i.purchased);
 
@@ -98,13 +113,17 @@ export async function openShoppingMode({ onFinished }) {
     }, 0);
 
     await db.addHistoryEntry({
+      supermarketId: supermarketId || null,
+      supermarketLabel: supermarketLabel || null,
       items: items.map((i) => ({ ...i })),
       totalCount: items.length,
       purchasedCount: bought.length,
       notPurchasedCount: notBought.length,
       totalPrice: totalPrice > 0 ? totalPrice : null,
     });
-    await db.clearActiveList();
+    // Ne supprime que les articles de la session en cours : les articles
+    // rattaches aux autres supermarches restent dans la liste.
+    for (const item of items) await db.deleteItem(item.id);
 
     overlay.hidden = true;
     showToast("Courses enregistrées dans l'historique 🎉");

@@ -2,7 +2,7 @@ import * as db from "./db.js";
 import { el, formatDateLong, formatTime, formatQty, formatPrice, computeItemTotal, showToast, escapeHtml } from "./helpers.js";
 import { openItemModal } from "./itemModal.js";
 import { openShoppingMode } from "./shoppingMode.js";
-import { openConfirm } from "./confirm.js";
+import { openConfirm, openPrompt, openChoice } from "./confirm.js";
 
 const screenEl = document.getElementById("screen");
 const headerTitle = document.getElementById("header-title");
@@ -19,10 +19,11 @@ async function navigate(route) {
   currentRoute = route;
   historyDetailId = null;
   navButtons.forEach((b) => b.classList.toggle("active", b.dataset.route === route));
-  document.getElementById("fab-add").hidden = route === "history" || route === "settings";
+  document.getElementById("fab-add").hidden = route === "history" || route === "settings" || route === "add";
   headerAction.hidden = true;
 
   if (route === "home") { headerTitle.textContent = "Accueil"; await renderHome(); }
+  else if (route === "add") { headerTitle.textContent = "Ajouter"; await renderAdd(); }
   else if (route === "courses") { headerTitle.textContent = "Courses"; await renderCourses(); }
   else if (route === "products") { headerTitle.textContent = "Produits"; await renderProducts(); }
   else if (route === "history") { headerTitle.textContent = "Historique"; await renderHistory(); }
@@ -244,6 +245,170 @@ function generateListCSV(items, supermarkets) {
 }
 
 // ============================================================================
+// Écran : Ajouter (formulaire dédié de saisie des produits)
+// ============================================================================
+async function renderAdd() {
+  const [categories, supermarkets, recurrents] = await Promise.all([
+    db.getAllCategories(),
+    db.getSupermarkets(),
+    db.getRecurrents(),
+  ]);
+
+  screenEl.innerHTML = "";
+
+  if (supermarkets.length === 0) {
+    screenEl.appendChild(el(`
+      <div class="empty-state">
+        <span class="emoji">🏬</span>
+        <h3>Aucun supermarché</h3>
+        <p>Créez d'abord un supermarché dans les Paramètres pour pouvoir y ranger vos produits.</p>
+      </div>
+    `));
+    const goBtn = el(`<button class="btn btn-primary btn-block">Aller aux paramètres</button>`);
+    goBtn.addEventListener("click", () => navigate("settings"));
+    screenEl.appendChild(goBtn);
+    return;
+  }
+
+  const form = el(`
+    <div class="add-form">
+      <div class="field">
+        <label for="a-name">Nom du produit</label>
+        <input id="a-name" type="text" placeholder="Ex. Lait" autocomplete="off" />
+      </div>
+      <div id="a-suggestions"></div>
+
+      <div class="row-2">
+        <div class="field">
+          <label for="a-qty">Quantité</label>
+          <input id="a-qty" type="number" min="0" step="any" value="1" />
+        </div>
+        <div class="field">
+          <label for="a-unit">Unité</label>
+          <select id="a-unit">
+            ${db.DEFAULT_UNITS.map((u) => `<option value="${u}">${u}</option>`).join("")}
+          </select>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="a-category">Catégorie</label>
+        <select id="a-category">
+          ${categories.map((c) => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`).join("")}
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="a-supermarket">Supermarché</label>
+        <select id="a-supermarket">
+          ${supermarkets.map((s) => `<option value="${s.id}">${s.icon} ${escapeHtml(s.name)}</option>`).join("")}
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="a-notes">Notes (facultatif)</label>
+        <input id="a-notes" type="text" placeholder="Ex. marque préférée, sans sucre..." />
+      </div>
+
+      <button class="btn btn-primary btn-block" id="a-submit">Ajouter à la liste</button>
+      <p class="add-hint" id="a-hint">Le formulaire reste ouvert : enchaînez vos produits.</p>
+    </div>
+  `);
+  screenEl.appendChild(form);
+
+  const nameInput = form.querySelector("#a-name");
+  const qtyInput = form.querySelector("#a-qty");
+  const unitSelect = form.querySelector("#a-unit");
+  const catSelect = form.querySelector("#a-category");
+  const smSelect = form.querySelector("#a-supermarket");
+  const notesInput = form.querySelector("#a-notes");
+  const suggestionsBox = form.querySelector("#a-suggestions");
+  const hint = form.querySelector("#a-hint");
+
+  // Suggestions issues des articles déjà utilisés
+  nameInput.addEventListener("input", () => {
+    const q = nameInput.value.trim().toLowerCase();
+    if (!q) { suggestionsBox.innerHTML = ""; return; }
+    const known = [
+      ...recurrents.map((r) => ({ name: r.name, category: r.category, unit: r.unit })),
+      ...db.getPredefinedFoods(),
+    ];
+    const seen = new Set();
+    const matches = known.filter((k) => {
+      const key = k.name.toLowerCase();
+      if (seen.has(key) || !key.includes(q) || key === q) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, 4);
+
+    suggestionsBox.innerHTML = matches.length
+      ? `<div class="suggestions-list">${matches.map((m) => `<button type="button" data-name="${escapeHtml(m.name)}" data-cat="${escapeHtml(m.category)}" data-unit="${escapeHtml(m.unit)}"><b>${escapeHtml(m.name)}</b> · ${escapeHtml(m.category)}</button>`).join("")}</div>`
+      : "";
+  });
+
+  suggestionsBox.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-name]");
+    if (!btn) return;
+    nameInput.value = btn.dataset.name;
+    if ([...catSelect.options].some((o) => o.value === btn.dataset.cat)) catSelect.value = btn.dataset.cat;
+    if ([...unitSelect.options].some((o) => o.value === btn.dataset.unit)) unitSelect.value = btn.dataset.unit;
+    suggestionsBox.innerHTML = "";
+    qtyInput.focus();
+  });
+
+  async function submit() {
+    const name = nameInput.value.trim();
+    if (!name) { nameInput.focus(); showToast("Indiquez un nom de produit"); return; }
+
+    const smId = smSelect.value;
+    const smName = supermarkets.find((s) => s.id === smId)?.name ?? "";
+
+    await db.addItem({
+      name,
+      category: catSelect.value,
+      quantity: Number(qtyInput.value) || 1,
+      unit: unitSelect.value,
+      supermarketId: smId,
+      notes: notesInput.value.trim(),
+    });
+
+    showToast(`« ${name} » ajouté${smName ? ` à ${smName}` : ""}`);
+
+    // On conserve catégorie et supermarché pour enchaîner les saisies.
+    nameInput.value = "";
+    qtyInput.value = "1";
+    notesInput.value = "";
+    suggestionsBox.innerHTML = "";
+    hint.textContent = `Dernier ajout : ${name}${smName ? ` → ${smName}` : ""}`;
+    nameInput.focus();
+  }
+
+  form.querySelector("#a-submit").addEventListener("click", submit);
+  nameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
+  notesInput.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
+
+  nameInput.focus();
+}
+
+// ============================================================================
+// Utilitaires de tri / regroupement
+// ============================================================================
+function groupBy(arr, keyFn) {
+  const map = new Map();
+  for (const item of arr) {
+    const key = keyFn(item);
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(item);
+  }
+  return [...map.entries()].sort((a, b) => String(a[0]).localeCompare(String(b[0]), "fr"));
+}
+
+function sortByPriorityThenCategory(a, b) {
+  if (a.priority !== b.priority) return a.priority === "importante" ? -1 : 1;
+  return new Date(a.createdAt) - new Date(b.createdAt);
+}
+
+// ============================================================================
 // Ligne d'article commune (Accueil / Liste)
 // ============================================================================
 function renderItemRow(item, { onChange, editable = false } = {}) {
@@ -363,7 +528,35 @@ function renderQuickAddBar(recurrents) {
 // Mode courses
 // ============================================================================
 async function startShopping() {
+  const [items, supermarkets] = await Promise.all([db.getAllItems(), db.getSupermarkets()]);
+  const toBuy = items.filter((i) => !i.purchased);
+
+  // Recense les supermarches qui ont effectivement des articles a acheter.
+  const usedIds = [...new Set(toBuy.map((i) => i.supermarketId || "sans-supermarche"))];
+
+  let supermarketId = null;
+  if (usedIds.length > 1) {
+    const options = usedIds.map((id) => {
+      const sm = supermarkets.find((s) => s.id === id);
+      const count = toBuy.filter((i) => (i.supermarketId || "sans-supermarche") === id).length;
+      const name = sm ? `${sm.icon} ${sm.name}` : "Sans supermarché";
+      return { value: id, label: `${name} — ${count} article${count > 1 ? "s" : ""}` };
+    });
+    options.push({ value: "__all__", label: `🧺 Tous les supermarchés — ${toBuy.length} articles` });
+
+    supermarketId = await openChoice({
+      title: "Dans quel supermarché ?",
+      message: "Vos articles sont répartis sur plusieurs magasins. Choisissez celui où vous faites vos courses.",
+      options,
+    });
+    if (supermarketId === null) return; // annule
+    if (supermarketId === "__all__") supermarketId = null;
+  } else if (usedIds.length === 1) {
+    supermarketId = usedIds[0];
+  }
+
   await openShoppingMode({
+    supermarketId,
     onFinished: () => refreshCurrentScreen(),
   });
 }
@@ -549,7 +742,11 @@ async function renderHistoryDetail(id) {
     `);
     
     row.querySelector('[data-action="edit"]').addEventListener("click", async () => {
-      const newQty = prompt("Nouvelle quantité :", item.quantity);
+      const newQty = await openPrompt({
+        title: `Modifier « ${item.name} »`,
+        label: "Nouvelle quantité",
+        value: item.quantity,
+      });
       if (newQty && newQty !== item.quantity.toString()) {
         const updatedItems = entry.items.map(i => 
           i.name === item.name ? { ...i, quantity: parseFloat(newQty) || item.quantity } : i
@@ -601,46 +798,58 @@ async function renderSettings() {
   supermarkets.forEach((sm) => {
     const row = el(`
       <div class="settings-row" data-sm-id="${sm.id}">
-        <div style="flex:1;">
-          <div class="label" data-editable="${!sm.isDefault}" style="${!sm.isDefault ? "cursor:pointer;" : ""}">${sm.icon} ${escapeHtml(sm.name)}</div>
-          ${sm.isDefault ? `<div class="sub">Défaut</div>` : `<div class="sub" style="font-size:11px;color:var(--ink-soft);">Cliquez pour renommer</div>`}
-        </div>
-        ${sm.isDefault ? "" : `<button class="link danger" data-del-sm="${sm.id}">Supprimer</button>`}
+        <button class="settings-edit" data-rename-sm style="flex:1;text-align:left;background:none;border:none;font-family:inherit;cursor:pointer;padding:0;">
+          <div class="label">${sm.icon} ${escapeHtml(sm.name)}</div>
+          <div class="sub">Appuyez pour renommer</div>
+        </button>
+        <button class="link danger" data-del-sm="${sm.id}">Supprimer</button>
       </div>
     `);
-    smGroup.appendChild(row);
-    
-    if (!sm.isDefault) {
-      row.querySelector('[data-editable]').addEventListener("click", async () => {
-        const newName = prompt("Renommer le supermarché :", sm.name);
-        if (newName && newName.trim() !== sm.name) {
-          await db.updateSupermarket(sm.id, { name: newName.trim() });
-          renderSettings();
-        }
+
+    row.querySelector("[data-rename-sm]").addEventListener("click", async () => {
+      const newName = await openPrompt({
+        title: "Renommer le supermarché",
+        value: sm.name,
+        placeholder: "Nom du supermarché",
       });
-    }
+      if (newName && newName !== sm.name) {
+        await db.updateSupermarket(sm.id, { name: newName });
+        showToast("Supermarché renommé");
+        renderSettings();
+      }
+    });
+
+    row.querySelector("[data-del-sm]").addEventListener("click", async () => {
+      const ok = await openConfirm({
+        title: "Supprimer ce supermarché ?",
+        message: "Les articles qui lui sont rattachés seront regroupés sous « Sans supermarché ».",
+        confirmLabel: "Supprimer",
+        danger: true,
+      });
+      if (ok) { await db.deleteSupermarket(sm.id); renderSettings(); }
+    });
+
+    smGroup.appendChild(row);
   });
-  
+
   const addSmRow = el(`
     <div class="settings-row">
-      <input id="new-sm-input" type="text" placeholder="Nouveau supermarché..." style="border:none;flex:1;font-size:15px;outline:none;" />
+      <input id="new-sm-input" type="text" placeholder="Nouveau supermarché..." style="border:none;flex:1;font-size:16px;outline:none;background:none;" />
       <button class="link" id="add-sm-btn">Ajouter</button>
     </div>
   `);
   smGroup.appendChild(addSmRow);
   screenEl.appendChild(smGroup);
 
-  smGroup.querySelectorAll("[data-del-sm]").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const ok = await openConfirm({ title: "Supprimer ce supermarché ?", confirmLabel: "Supprimer", danger: true });
-      if (ok) { await db.deleteSupermarket(btn.dataset.delSm); renderSettings(); }
-    });
-  });
-  addSmRow.querySelector("#add-sm-btn").addEventListener("click", async () => {
+  async function submitNewSupermarket() {
     const input = addSmRow.querySelector("#new-sm-input");
     if (!input.value.trim()) return;
     await db.addSupermarket(input.value.trim());
     renderSettings();
+  }
+  addSmRow.querySelector("#add-sm-btn").addEventListener("click", submitNewSupermarket);
+  addSmRow.querySelector("#new-sm-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); submitNewSupermarket(); }
   });
 
   // --- Catégories ---
@@ -649,45 +858,58 @@ async function renderSettings() {
   categories.forEach((cat) => {
     const row = el(`
       <div class="settings-row" data-cat-id="${cat.id}">
-        <div style="flex:1;">
-          <div class="label" data-editable="${!cat.isDefault}" style="${!cat.isDefault ? "cursor:pointer;" : ""}">${escapeHtml(cat.name)}</div>
-          ${!cat.isDefault ? `<div class="sub" style="font-size:11px;color:var(--ink-soft);">Cliquez pour renommer</div>` : ""}
-        </div>
-        ${cat.isDefault ? "" : `<button class="link danger" data-del-cat="${cat.id}">Supprimer</button>`}
+        <button class="settings-edit" data-rename-cat style="flex:1;text-align:left;background:none;border:none;font-family:inherit;cursor:pointer;padding:0;">
+          <div class="label">${escapeHtml(cat.name)}</div>
+          <div class="sub">Appuyez pour renommer</div>
+        </button>
+        <button class="link danger" data-del-cat="${cat.id}">Supprimer</button>
       </div>
     `);
-    catGroup.appendChild(row);
-    
-    if (!cat.isDefault) {
-      row.querySelector('[data-editable]').addEventListener("click", async () => {
-        const newName = prompt("Renommer la catégorie :", cat.name);
-        if (newName && newName.trim() !== cat.name) {
-          await db.updateCategory(cat.id, newName.trim());
-          renderSettings();
-        }
+
+    row.querySelector("[data-rename-cat]").addEventListener("click", async () => {
+      const newName = await openPrompt({
+        title: "Renommer la catégorie",
+        value: cat.name,
+        placeholder: "Nom de la catégorie",
       });
-    }
+      if (newName && newName !== cat.name) {
+        await db.updateCategory(cat.id, newName);
+        showToast("Catégorie renommée");
+        renderSettings();
+      }
+    });
+
+    row.querySelector("[data-del-cat]").addEventListener("click", async () => {
+      const ok = await openConfirm({
+        title: "Supprimer la catégorie ?",
+        message: "Les articles existants garderont leur catégorie actuelle.",
+        confirmLabel: "Supprimer",
+        danger: true,
+      });
+      if (ok) { await db.deleteCategory(cat.id); renderSettings(); }
+    });
+
+    catGroup.appendChild(row);
   });
+
   const addCatRow = el(`
     <div class="settings-row">
-      <input id="new-cat-input" type="text" placeholder="Nouvelle catégorie..." style="border:none;flex:1;font-size:15px;outline:none;" />
+      <input id="new-cat-input" type="text" placeholder="Nouvelle catégorie..." style="border:none;flex:1;font-size:16px;outline:none;background:none;" />
       <button class="link" id="add-cat-btn">Ajouter</button>
     </div>
   `);
   catGroup.appendChild(addCatRow);
   screenEl.appendChild(catGroup);
 
-  catGroup.querySelectorAll("[data-del-cat]").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const ok = await openConfirm({ title: "Supprimer la catégorie ?", message: "Les articles existants garderont leur catégorie actuelle.", confirmLabel: "Supprimer", danger: true });
-      if (ok) { await db.deleteCategory(btn.dataset.delCat); renderSettings(); }
-    });
-  });
-  addCatRow.querySelector("#add-cat-btn").addEventListener("click", async () => {
+  async function submitNewCategory() {
     const input = addCatRow.querySelector("#new-cat-input");
     if (!input.value.trim()) return;
     await db.addCategory(input.value.trim());
     renderSettings();
+  }
+  addCatRow.querySelector("#add-cat-btn").addEventListener("click", submitNewCategory);
+  addCatRow.querySelector("#new-cat-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); submitNewCategory(); }
   });
 
   // --- Articles habituels ---

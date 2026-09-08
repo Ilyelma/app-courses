@@ -268,6 +268,7 @@ input, textarea, select { font-family: inherit; }
 }
 .nav-btn {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -275,11 +276,22 @@ input, textarea, select { font-family: inherit; }
   background: none;
   border: none;
   color: var(--ink-faint);
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 600;
   padding: 4px 0;
 }
-.nav-icon { font-size: 21px; line-height: 1; filter: grayscale(1); opacity: 0.55; }
+.nav-btn > span:last-child {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Six onglets : on reduit encore sur les ecrans etroits */
+@media (max-width: 360px) {
+  .nav-btn { font-size: 9.5px; }
+  .nav-icon { font-size: 19px; }
+}
+.nav-icon { font-size: 20px; line-height: 1; filter: grayscale(1); opacity: 0.55; }
 .nav-btn.active { color: var(--accent); }
 .nav-btn.active .nav-icon { filter: none; opacity: 1; }
 
@@ -679,6 +691,39 @@ input, textarea, select { font-family: inherit; }
 }
 .confirm-box h3 { margin: 0 0 8px; font-size: 17px; }
 .confirm-box p { margin: 0 0 18px; font-size: 14.5px; color: var(--ink-soft); line-height: 1.4; }
+
+/* Champ de saisie du remplacement de window.prompt() */
+.confirm-box .prompt-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  margin-bottom: 18px;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  font-size: 16px; /* >=16px evite le zoom automatique sur iOS */
+  font-family: inherit;
+  background: var(--surface);
+  color: var(--ink);
+}
+.confirm-box .prompt-input:focus { outline: none; border-color: var(--accent); }
+
+/* Liste de choix (selection du supermarche) */
+.choice-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+.choice-btn {
+  width: 100%;
+  text-align: left;
+  padding: 14px 16px;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 15.5px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+.choice-btn:active { transform: scale(0.98); }
+.choice-btn:hover { border-color: var(--accent); }
 .confirm-actions { display: flex; gap: 10px; }
 
 /* Utility */
@@ -690,4 +735,23 @@ input, textarea, select { font-family: inherit; }
 .fullscreen-overlay[hidden],
 .fab-add[hidden] {
   display: none !important;
+}
+
+
+/* ===================== Page Ajouter ===================== */
+.add-form { padding: 4px 2px 8px; }
+.add-form .field { margin-bottom: 15px; }
+.add-form .btn { margin-top: 4px; }
+.add-hint {
+  margin: 12px 0 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+.shopping-store {
+  text-align: center;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--accent-dark);
+  margin: 2px 0 8px;
 }
