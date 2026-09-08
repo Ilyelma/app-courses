@@ -1,16 +1,22 @@
 import * as db from "./db.js";
 import { el, showToast } from "./helpers.js";
 
-// Ouvre le formulaire d'ajout / édition d'un article.
+// Ouvre le popup (centré) d'ajout / édition d'un article.
 // `existingItem` (optionnel) : si fourni, le formulaire est pré-rempli et
 // la validation met à jour l'article au lieu d'en créer un nouveau.
 export async function openItemModal({ existingItem = null, onSaved } = {}) {
   const backdrop = document.getElementById("item-modal");
-  const [categories, recurrents] = await Promise.all([db.getAllCategories(), db.getRecurrents()]);
+  const [categories, recurrents, supermarkets, activeSupermarketId] = await Promise.all([
+    db.getAllCategories(),
+    db.getRecurrents(),
+    db.getSupermarkets(),
+    db.getActiveSupermarket(),
+  ]);
 
   const isEdit = !!existingItem;
   let selectedPriority = existingItem?.priority || "normale";
-  let expanded = isEdit; // en édition, on montre directement toutes les options
+
+  const currentSupermarketId = existingItem?.supermarketId || activeSupermarketId;
 
   const categoryOptions = categories
     .map((c) => `<option value="${c.name}" ${existingItem?.category === c.name ? "selected" : ""}>${c.name}</option>`)
@@ -20,13 +26,16 @@ export async function openItemModal({ existingItem = null, onSaved } = {}) {
     .map((u) => `<option value="${u}" ${existingItem?.unit === u ? "selected" : ""}>${u}</option>`)
     .join("");
 
+  const supermarketOptions = supermarkets
+    .map((s) => `<option value="${s.id}" ${s.id === currentSupermarketId ? "selected" : ""}>${s.icon} ${s.name}</option>`)
+    .join("");
+
   const sheet = el(`
-    <div class="modal-sheet" role="dialog" aria-modal="true">
-      <div class="modal-handle"></div>
+    <div class="modal-sheet modal-centered" role="dialog" aria-modal="true">
       <div class="modal-head">
         <button data-action="cancel">Annuler</button>
-        <h2>${isEdit ? "Modifier l'article" : "Nouvel article"}</h2>
-        <button data-action="save" class="save-btn">Ajouter</button>
+        <h2>${isEdit ? "Modifier" : "Nouvel article"}</h2>
+        <button data-action="save" class="save-btn">${isEdit ? "Enregistrer" : "Ajouter"}</button>
       </div>
       <div class="modal-body">
         <div class="field">
@@ -35,23 +44,30 @@ export async function openItemModal({ existingItem = null, onSaved } = {}) {
         </div>
         <div id="f-suggestions"></div>
 
-        <div id="f-more" class="${expanded ? "" : "hidden"}">
-          <div class="row-2">
-            <div class="field">
-              <label for="f-qty">Quantité</label>
-              <input id="f-qty" type="number" min="0" step="any" value="${existingItem?.quantity ?? 1}" />
-            </div>
-            <div class="field">
-              <label for="f-unit">Unité</label>
-              <select id="f-unit">${unitOptions}</select>
-            </div>
-          </div>
-
+        <div class="row-2">
           <div class="field">
-            <label for="f-category">Catégorie</label>
-            <select id="f-category">${categoryOptions}</select>
+            <label for="f-qty">Quantité</label>
+            <input id="f-qty" type="number" min="0" step="any" value="${existingItem?.quantity ?? 1}" />
           </div>
+          <div class="field">
+            <label for="f-unit">Unité</label>
+            <select id="f-unit">${unitOptions}</select>
+          </div>
+        </div>
 
+        <div class="field">
+          <label for="f-category">Catégorie</label>
+          <select id="f-category">${categoryOptions}</select>
+        </div>
+
+        <div class="field">
+          <label for="f-supermarket">Supermarché</label>
+          <select id="f-supermarket">${supermarketOptions}</select>
+        </div>
+
+        <button type="button" class="collapsible-toggle" data-action="expand">+ Plus d'options (priorité, prix, notes)</button>
+
+        <div id="f-more" class="hidden">
           <div class="field">
             <label>Priorité</label>
             <div class="priority-toggle">
@@ -76,8 +92,6 @@ export async function openItemModal({ existingItem = null, onSaved } = {}) {
             <textarea id="f-notes" placeholder="Ex. marque préférée, taille...">${existingItem?.notes ?? ""}</textarea>
           </div>
         </div>
-
-        ${expanded ? "" : `<button type="button" class="collapsible-toggle" data-action="expand">+ Plus d'options (catégorie, quantité, priorité...)</button>`}
       </div>
     </div>
   `);
@@ -89,6 +103,11 @@ export async function openItemModal({ existingItem = null, onSaved } = {}) {
   const nameInput = sheet.querySelector("#f-name");
   const suggestionsBox = sheet.querySelector("#f-suggestions");
   const saveBtn = sheet.querySelector(".save-btn");
+
+  if (isEdit) {
+    sheet.querySelector("#f-more").classList.remove("hidden");
+    sheet.querySelector('[data-action="expand"]').remove();
+  }
 
   function renderSuggestions() {
     const q = nameInput.value.trim().toLowerCase();
@@ -111,10 +130,8 @@ export async function openItemModal({ existingItem = null, onSaved } = {}) {
     const match = recurrents.find((r) => r.id === btn.dataset.fill);
     if (!match) return;
     nameInput.value = match.name;
-    const catSelect = sheet.querySelector("#f-category");
-    const unitSelect = sheet.querySelector("#f-unit");
-    if (catSelect) catSelect.value = match.category;
-    if (unitSelect) unitSelect.value = match.unit;
+    sheet.querySelector("#f-category").value = match.category;
+    sheet.querySelector("#f-unit").value = match.unit;
     suggestionsBox.innerHTML = "";
   });
 
@@ -145,16 +162,16 @@ export async function openItemModal({ existingItem = null, onSaved } = {}) {
     const name = nameInput.value.trim();
     if (!name) { nameInput.focus(); return; }
 
-    const more = sheet.querySelector("#f-more");
     const payload = {
       name,
-      category: more.querySelector("#f-category")?.value || existingItem?.category || "Autre",
-      quantity: Number(more.querySelector("#f-qty")?.value || existingItem?.quantity || 1),
-      unit: more.querySelector("#f-unit")?.value || existingItem?.unit || "pièce",
+      category: sheet.querySelector("#f-category")?.value || existingItem?.category || "Autre",
+      quantity: Number(sheet.querySelector("#f-qty")?.value || existingItem?.quantity || 1),
+      unit: sheet.querySelector("#f-unit")?.value || existingItem?.unit || "pièce",
+      supermarketId: sheet.querySelector("#f-supermarket")?.value || null,
       priority: selectedPriority,
-      notes: more.querySelector("#f-notes")?.value?.trim() || "",
-      priceUnit: more.querySelector("#f-price-unit")?.value || null,
-      priceTotal: more.querySelector("#f-price-total")?.value || null,
+      notes: sheet.querySelector("#f-notes")?.value?.trim() || "",
+      priceUnit: sheet.querySelector("#f-price-unit")?.value || null,
+      priceTotal: sheet.querySelector("#f-price-total")?.value || null,
     };
 
     if (isEdit) {
@@ -170,6 +187,6 @@ export async function openItemModal({ existingItem = null, onSaved } = {}) {
 
   saveBtn.addEventListener("click", save);
   nameInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !expanded) { e.preventDefault(); save(); }
+    if (e.key === "Enter") { e.preventDefault(); save(); }
   });
 }

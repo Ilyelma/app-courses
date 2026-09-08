@@ -461,6 +461,23 @@ input, textarea, select { font-family: inherit; }
   border-radius: var(--radius-pill);
   margin: 10px auto 4px;
 }
+
+/* Popup centré (ajout / édition d'article, résumé de fin de session) */
+.modal-backdrop:has(.modal-centered) { align-items: center; }
+.modal-sheet.modal-centered {
+  border-radius: 22px;
+  width: calc(100% - 32px);
+  max-width: 460px;
+  max-height: 86vh;
+  padding-bottom: 8px;
+  padding-top: 6px;
+  animation: pop-in 0.2s cubic-bezier(.2,.9,.3,1) both;
+  box-shadow: 0 18px 48px rgba(20, 26, 22, 0.28);
+}
+@keyframes pop-in {
+  from { transform: scale(0.94); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
 .modal-head {
   display: flex;
   align-items: center;

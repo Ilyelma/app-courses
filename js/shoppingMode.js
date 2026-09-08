@@ -1,6 +1,5 @@
 import * as db from "./db.js";
 import { el, formatQty, showToast } from "./helpers.js";
-import { openConfirm } from "./confirm.js";
 
 export async function openShoppingMode({ onFinished }) {
   const overlay = document.getElementById("shopping-mode");
@@ -90,12 +89,7 @@ export async function openShoppingMode({ onFinished }) {
     const bought = items.filter((i) => i.purchased);
     const notBought = items.filter((i) => !i.purchased);
 
-    const confirmed = await openConfirm({
-      title: "Terminer les courses ?",
-      message: `${bought.length} article(s) acheté(s), ${notBought.length} non acheté(s). La liste sera sauvegardée dans l'historique puis vidée.`,
-      confirmLabel: "Terminer",
-      danger: false,
-    });
+    const confirmed = await openSessionSummary({ items, bought, notBought });
     if (!confirmed) return;
 
     const totalPrice = items.reduce((sum, i) => {
@@ -127,4 +121,80 @@ export async function openShoppingMode({ onFinished }) {
   }
 
   await render();
+}
+
+// ----------------------------------------------------------------------------
+// Popup de fin de session : bilan chiffré avant enregistrement dans l'historique
+// ----------------------------------------------------------------------------
+function openSessionSummary({ items, bought, notBought }) {
+  return new Promise((resolve) => {
+    const backdrop = document.getElementById("item-modal");
+    const total = items.length;
+    const pct = total ? Math.round((bought.length / total) * 100) : 0;
+
+    let verdict;
+    if (pct === 100) verdict = { emoji: "🎉", text: "Liste complète, tout est acheté !" };
+    else if (pct >= 80) verdict = { emoji: "👍", text: "Presque tout y est." };
+    else if (pct >= 50) verdict = { emoji: "🙂", text: "Plus de la moitié de la liste." };
+    else if (pct > 0) verdict = { emoji: "🧐", text: "Il reste beaucoup à acheter." };
+    else verdict = { emoji: "🤔", text: "Aucun article coché." };
+
+    const missingPreview = notBought.slice(0, 5);
+
+    const sheet = el(`
+      <div class="modal-sheet modal-centered" role="dialog" aria-modal="true">
+        <div class="modal-body" style="padding: 22px 20px 18px;">
+          <div style="text-align:center;margin-bottom:18px;">
+            <div style="font-size:46px;line-height:1;">${verdict.emoji}</div>
+            <div style="font-size:34px;font-weight:800;margin-top:10px;">${pct}%</div>
+            <div style="color:var(--ink-soft);font-size:14.5px;margin-top:4px;">${verdict.text}</div>
+          </div>
+
+          <div class="progress-track" style="margin-bottom:18px;">
+            <div class="progress-fill" style="width:${pct}%"></div>
+          </div>
+
+          <div class="stat-row" style="margin-bottom:16px;">
+            <div class="stat-box"><div class="num">${total}</div><div class="lbl">Articles</div></div>
+            <div class="stat-box"><div class="num">${bought.length}</div><div class="lbl">Achetés</div></div>
+            <div class="stat-box"><div class="num">${notBought.length}</div><div class="lbl">Manquants</div></div>
+          </div>
+
+          ${missingPreview.length ? `
+            <div style="background:var(--surface-alt);border-radius:12px;padding:12px 14px;margin-bottom:18px;">
+              <div style="font-size:12.5px;font-weight:700;color:var(--ink-soft);margin-bottom:6px;">NON ACHETÉS</div>
+              <div style="font-size:14px;line-height:1.6;">
+                ${missingPreview.map((i) => escapeHtmlLocal(i.name)).join(", ")}${notBought.length > 5 ? ` et ${notBought.length - 5} autre(s)` : ""}
+              </div>
+            </div>
+          ` : ""}
+
+          <p style="color:var(--ink-soft);font-size:13px;margin:0 0 16px;text-align:center;">
+            La liste sera enregistrée dans l'historique puis vidée.
+          </p>
+
+          <button class="btn btn-primary btn-block" data-action="confirm" style="margin-bottom:8px;">Terminer et enregistrer</button>
+          <button class="btn btn-secondary btn-block" data-action="cancel">Continuer les courses</button>
+        </div>
+      </div>
+    `);
+
+    backdrop.innerHTML = "";
+    backdrop.appendChild(sheet);
+    backdrop.hidden = false;
+
+    function close(result) {
+      backdrop.hidden = true;
+      backdrop.innerHTML = "";
+      resolve(result);
+    }
+
+    sheet.querySelector('[data-action="confirm"]').addEventListener("click", () => close(true));
+    sheet.querySelector('[data-action="cancel"]').addEventListener("click", () => close(false));
+    backdrop.addEventListener("click", (e) => { if (e.target === backdrop) close(false); }, { once: true });
+  });
+}
+
+function escapeHtmlLocal(str) {
+  return String(str).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }

@@ -1,11 +1,16 @@
 // ============================================================================
-// sw.js — Service worker : cache "app shell" pour un fonctionnement hors-ligne
-// complet. Stratégie : cache-first pour les fichiers de l'application,
-// avec repli réseau puis mise à jour du cache en tâche de fond.
+// sw.js — Service worker : cache "app shell" pour un fonctionnement hors-ligne.
+//
+// Stratégie : NETWORK-FIRST avec repli sur le cache.
+// (L'ancienne stratégie cache-first servait indéfiniment une version périmée
+//  du code : toute mise à jour déployée restait invisible pour l'utilisateur.)
 // ============================================================================
 
-const CACHE_NAME = "mescourses-cache-v2";
+const CACHE_NAME = "mescourses-cache-v4";
 
+// N'inclure ici que des fichiers qui existent réellement : cache.addAll()
+// rejette en bloc si une seule ressource est absente, ce qui fait échouer
+// l'installation du service worker et laisse l'ancien actif indéfiniment.
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -17,8 +22,6 @@ const APP_SHELL = [
   "./js/itemModal.js",
   "./js/shoppingMode.js",
   "./js/confirm.js",
-  "./js/pdfExport.js",
-  "./js/vendor/pdf-lib.esm.min.js",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
   "./icons/apple-touch-icon.png",
@@ -30,7 +33,11 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     (async () => {
       const cache = await caches.open(CACHE_NAME);
-      await cache.addAll(APP_SHELL);
+      // Mise en cache tolérante aux erreurs : un fichier manquant ne doit
+      // jamais empêcher l'installation du service worker.
+      await Promise.all(
+        APP_SHELL.map((url) => cache.add(url).catch(() => {}))
+      );
       self.skipWaiting();
     })()
   );
@@ -51,19 +58,18 @@ self.addEventListener("fetch", (event) => {
 
   event.respondWith(
     (async () => {
-      const cached = await caches.match(event.request, { ignoreSearch: true });
-      const fetchPromise = fetch(event.request)
-        .then((networkRes) => {
-          if (networkRes && networkRes.ok) {
-            const clone = networkRes.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          }
-          return networkRes;
-        })
-        .catch(() => cached);
-
-      // Cache-first pour une réactivité maximale hors-ligne ; sinon réseau.
-      return cached || fetchPromise;
+      try {
+        const networkRes = await fetch(event.request);
+        if (networkRes && networkRes.ok) {
+          const clone = networkRes.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        }
+        return networkRes;
+      } catch {
+        const cached = await caches.match(event.request, { ignoreSearch: true });
+        if (cached) return cached;
+        throw new Error("Ressource indisponible hors-ligne");
+      }
     })()
   );
 });

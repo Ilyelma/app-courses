@@ -19,11 +19,10 @@ async function navigate(route) {
   currentRoute = route;
   historyDetailId = null;
   navButtons.forEach((b) => b.classList.toggle("active", b.dataset.route === route));
-  document.getElementById("fab-add").hidden = route !== "home" && route !== "courses";
+  document.getElementById("fab-add").hidden = route === "history" || route === "settings";
   headerAction.hidden = true;
 
   if (route === "home") { headerTitle.textContent = "Accueil"; await renderHome(); }
-  else if (route === "add") { headerTitle.textContent = "Ajouter un produit"; await renderAdd(); headerAction.hidden = false; headerAction.textContent = "‹"; headerAction.onclick = () => navigate("home"); }
   else if (route === "courses") { headerTitle.textContent = "Courses"; await renderCourses(); }
   else if (route === "products") { headerTitle.textContent = "Produits"; await renderProducts(); }
   else if (route === "history") { headerTitle.textContent = "Historique"; await renderHistory(); }
@@ -33,8 +32,7 @@ async function navigate(route) {
 navButtons.forEach((btn) => btn.addEventListener("click", () => navigate(btn.dataset.route)));
 
 document.getElementById("fab-add").addEventListener("click", () => {
-  if (currentRoute === "add") return;
-  navigate("add");
+  openItemModal({ onSaved: () => refreshCurrentScreen() });
 });
 
 function refreshCurrentScreen() {
@@ -243,116 +241,6 @@ function generateListCSV(items, supermarkets) {
   }
   
   return csv;
-}
-
-// ============================================================================
-// Écran : Ajouter produit
-// ============================================================================
-async function renderAdd() {
-  const [categories, supermarkets, activeSupermarketId] = await Promise.all([
-    db.getAllCategories(),
-    db.getSupermarkets(),
-    db.getActiveSupermarket(),
-  ]);
-
-  screenEl.innerHTML = "";
-
-  const form = el(`
-    <div style="padding: 16px;">
-      <div style="margin-bottom: 16px;">
-        <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;color:var(--ink-soft);">Nom du produit *</label>
-        <input id="add-name" type="text" placeholder="Ex: Lait, Café, Pain..." style="width:100%;padding:12px;border:1px solid var(--border-light);border-radius:8px;font-size:15px;box-sizing:border-box;" />
-      </div>
-
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
-        <div>
-          <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;color:var(--ink-soft);">Quantité</label>
-          <input id="add-qty" type="number" value="1" min="0.1" step="0.1" style="width:100%;padding:12px;border:1px solid var(--border-light);border-radius:8px;font-size:15px;box-sizing:border-box;" />
-        </div>
-        <div>
-          <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;color:var(--ink-soft);">Unité</label>
-          <select id="add-unit" style="width:100%;padding:12px;border:1px solid var(--border-light);border-radius:8px;font-size:15px;box-sizing:border-box;">
-            ${db.DEFAULT_UNITS.map(u => `<option value="${u}">${u}</option>`).join("")}
-          </select>
-        </div>
-      </div>
-
-      <div style="margin-bottom: 16px;">
-        <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;color:var(--ink-soft);">Catégorie</label>
-        <select id="add-category" style="width:100%;padding:12px;border:1px solid var(--border-light);border-radius:8px;font-size:15px;box-sizing:border-box;">
-          ${categories.map(c => `<option value="${c.id}">${c.name}</option>`).join("")}
-        </select>
-      </div>
-
-      <div style="margin-bottom: 16px;">
-        <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;color:var(--ink-soft);">Supermarché</label>
-        <select id="add-supermarket" style="width:100%;padding:12px;border:1px solid var(--border-light);border-radius:8px;font-size:15px;box-sizing:border-box;">
-          ${supermarkets.map(sm => `<option value="${sm.id}" ${sm.id === activeSupermarketId ? "selected" : ""}>${sm.icon} ${sm.name}</option>`).join("")}
-        </select>
-      </div>
-
-      <div style="margin-bottom: 16px;">
-        <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;color:var(--ink-soft);">Notes (optionnel)</label>
-        <input id="add-notes" type="text" placeholder="Ex: Sans sucre, marque X..." style="width:100%;padding:12px;border:1px solid var(--border-light);border-radius:8px;font-size:15px;box-sizing:border-box;" />
-      </div>
-
-      <div style="display:flex;gap:8px;padding-top:8px;">
-        <button id="add-submit" class="btn btn-primary btn-block">✓ Ajouter</button>
-        <button id="add-reset" class="btn btn-block" style="background:var(--bg-soft);color:var(--ink);border:1px solid var(--border-light);">↻ Réinitialiser</button>
-      </div>
-    </div>
-  `);
-
-  screenEl.appendChild(form);
-
-  const nameInput = form.querySelector("#add-name");
-  const qtyInput = form.querySelector("#add-qty");
-  const unitSelect = form.querySelector("#add-unit");
-  const categorySelect = form.querySelector("#add-category");
-  const supermarketSelect = form.querySelector("#add-supermarket");
-  const notesInput = form.querySelector("#add-notes");
-
-  form.querySelector("#add-submit").addEventListener("click", async () => {
-    if (!nameInput.value.trim()) {
-      showToast("Le nom du produit est obligatoire");
-      return;
-    }
-    const selectedCategoryId = categorySelect.value;
-    const selectedCategory = categories.find(c => c.id === selectedCategoryId);
-    
-    await db.addItem({
-      name: nameInput.value.trim(),
-      category: selectedCategory?.name || "Autre",
-      quantity: parseFloat(qtyInput.value) || 1,
-      unit: unitSelect.value,
-      supermarketId: supermarketSelect.value,
-      notes: notesInput.value.trim(),
-    });
-    showToast(`« ${nameInput.value} » ajouté`);
-    navigate("courses");
-  });
-
-  form.querySelector("#add-reset").addEventListener("click", () => {
-    nameInput.value = "";
-    qtyInput.value = "1";
-    unitSelect.value = "pièce";
-    notesInput.value = "";
-  });
-}
-
-function groupBy(arr, keyFn) {
-  const map = new Map();
-  for (const item of arr) {
-    const key = keyFn(item);
-    if (!map.has(key)) map.set(key, []);
-    map.get(key).push(item);
-  }
-  return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0], "fr"));
-}
-
-function sortByPriorityThenCategory(a, b) {
-  if (a.priority !== b.priority) return a.priority === "importante" ? -1 : 1;
-  return new Date(a.createdAt) - new Date(b.createdAt);
 }
 
 // ============================================================================
@@ -584,7 +472,7 @@ async function renderHistory() {
         });
       }
       showToast("Articles ajoutés à votre liste");
-      navigate("list");
+      navigate("courses");
     });
     
     row.querySelector('[data-action="delete"]').addEventListener("click", async (e) => {

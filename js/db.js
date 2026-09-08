@@ -184,8 +184,15 @@ export async function getAllItems() {
 }
 
 export async function addItem(partial) {
+  // Important : toute lecture asynchrone doit avoir lieu AVANT l'ouverture de la
+  // transaction d'écriture. Une transaction IndexedDB se referme automatiquement
+  // dès que le contrôle revient à la boucle d'événements ; un `await` sur une
+  // autre transaction au milieu rendrait le `put()` suivant invalide.
+  const activeSupermarketId = partial.supermarketId
+    ? null
+    : await getSetting("activeSupermarketId", null);
+
   const store = await tx("items", "readwrite");
-  const activeSupermarketId = await getSetting("activeSupermarketId", null);
   const item = {
     id: uid(),
     name: partial.name.trim(),
@@ -351,11 +358,12 @@ export async function setSetting(key, value) {
 // Export / Import complet (sauvegarde JSON)
 // ----------------------------------------------------------------------------
 export async function exportAllData() {
-  const [items, categories, recurrents, history] = await Promise.all([
+  const [items, categories, recurrents, history, supermarkets] = await Promise.all([
     getAllItems(),
     getAllCategories(),
     getRecurrents(),
     getHistory(),
+    getSupermarkets(),
   ]);
   const settingsStore = await tx("settings");
   const settings = await wrap(settingsStore.getAll());
@@ -367,12 +375,13 @@ export async function exportAllData() {
     categories,
     recurrents,
     history,
+    supermarkets,
     settings,
   };
 }
 
 export async function importAllData(data) {
-  const stores = ["items", "categories", "recurrents", "history", "settings"];
+  const stores = ["items", "categories", "recurrents", "history", "supermarkets", "settings"];
   const db = await openDB();
   const transaction = db.transaction(stores, "readwrite");
 
